@@ -77,6 +77,31 @@ location /sortie/ {
 
 gzip matters here: `assets/ship-models.js` is 1,021 KB raw and 357 KB compressed.
 
+The page itself is served `no-cache` and the assets `max-age=604800`. That split
+is deliberate: `index.html` is one big file, so a cached copy makes a fresh
+deploy invisible and looks exactly like a broken one, while the ships and
+textures only change when their content does.
+
+## Audio routing
+
+Everything shares one `AudioContext`. Each category has its own submix bus with
+its own dynamics, and they meet at a brick-wall limiter:
+
+| Bus | Contents | Compression |
+|---|---|---|
+| `wpn` | Lasers, point defence, missiles | −20 dB, 3:1, 3 ms attack |
+| `imp` | Hits, shields, hull | −15 dB, 4:1, 2 ms attack |
+| `big` | Explosions, rocks, jump flashes | −11 dB, 2.4:1, 6 ms attack |
+| `amb` | Engine, saucer hum, fly-bys, beam, reverb return | none |
+| `ui` | Lock tones, radio, jingles, alarm | none |
+| `mus` | Music (runs its own ducking) | none |
+
+There used to be a single compressor for everything, which meant an explosion
+flattened the lasers for a fifth of a second and pumped the music along with it.
+The reverb tail returns on `amb`, outside the transient compressors, so a big hit
+does not pump its own tail. The limiter (−3 dB, 20:1, 1 ms) is what lets the mix
+sit louder without clipping when several things go off at once.
+
 ## Credits
 
 Third-party assets are all **CC0 1.0 (public domain)** — see

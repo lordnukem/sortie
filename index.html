@@ -310,6 +310,7 @@ resize();
 // Everything runs through a compressor for punch; weapons and explosions also feed a generated reverb.
 const sfx = (() => {
   let ctx = null, master = null, verbIn = null, muted = false, noiseBuf = null, eng = null, drive = null;
+  let BUS = null;
   const osc0 = (type, f) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.start(); return o; };
   function impulse(sec, decay) {
     const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -323,18 +324,43 @@ const sfx = (() => {
     try {
       if (!ctx) {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.2;
+        // Output chain: every bus meets at `master`, which feeds a brick-wall limiter. The limiter is what
+        // lets the whole mix sit louder without clipping when six things go off at once, so it does the work
+        // that turning everything down used to do.
+        const limiter = ctx.createDynamicsCompressor();
+        limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20;
+        limiter.attack.value = 0.001; limiter.release.value = 0.08;
         master = ctx.createGain();
-        master.gain.value = 0.8;
-        master.connect(comp);
-        comp.connect(ctx.destination);
+        master.gain.value = 1;
+        master.connect(limiter);
+        limiter.connect(ctx.destination);
+        // There used to be one compressor for everything, which meant an explosion flattened the lasers for a
+        // fifth of a second and the music pumped along with it. Each category now has its own dynamics:
+        // weapons stay fast and tight, explosions are allowed to breathe, and ambience and UI are not
+        // compressed at all.
+        const comp = (thr, ratio, atk, rel, g) => {
+          const out = ctx.createGain(); out.gain.value = g;
+          const c = ctx.createDynamicsCompressor();
+          c.threshold.value = thr; c.knee.value = 6; c.ratio.value = ratio; c.attack.value = atk; c.release.value = rel;
+          out.connect(c); c.connect(master);
+          return out;
+        };
+        const plain = (g) => { const out = ctx.createGain(); out.gain.value = g; out.connect(master); return out; };
+        BUS = {
+          wpn: comp(-20, 3, 0.003, 0.11, 0.95),   // lasers, point defence, missiles
+          imp: comp(-15, 4, 0.002, 0.16, 1.15),   // hits, shields, hull
+          big: comp(-11, 2.4, 0.006, 0.34, 1.05), // explosions, rocks, jump flashes
+          amb: plain(0.9),                        // engine, saucer hum, fly-bys, tractor beam
+          ui: plain(1),                           // lock tones, radio, jingles, alarm
+          mus: plain(1),                          // music, which runs its own ducking
+        };
         const verb = ctx.createConvolver();
         verb.buffer = impulse(2.4, 3);
         verbIn = ctx.createGain();
         verbIn.gain.value = 0.5;
         verbIn.connect(verb);
-        verb.connect(master);
+        // The reverb tail returns outside the transient compressors, so a big hit does not pump its own tail.
+        verb.connect(BUS.amb);
         noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
         const ch = noiseBuf.getChannelData(0);
         for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
@@ -344,28 +370,28 @@ const sfx = (() => {
         const o1 = osc0('sawtooth', 40), o2 = osc0('sawtooth', 40.7), sub = osc0('sine', 20);
         const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 2;
         const g = ctx.createGain(); g.gain.value = 0;
-        o1.connect(f); o2.connect(f); sub.connect(g); f.connect(g); g.connect(master);
+        o1.connect(f); o2.connect(f); sub.connect(g); f.connect(g); g.connect(BUS.amb);
         const ns = ctx.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
         const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 500; nf.Q.value = 0.8;
         const ng = ctx.createGain(); ng.gain.value = 0;
-        ns.connect(nf); nf.connect(ng); ng.connect(master); ns.start();
+        ns.connect(nf); nf.connect(ng); ng.connect(BUS.amb); ns.start();
         eng = { o1, o2, sub, f, g, nf, ng };
       }
       if (ctx.state === 'suspended') ctx.resume();
     } catch { /* audio unavailable */ }
   }
   // Channel strip: optional soft-clip drive, a stereo position, and a reverb send.
-  function strip(pan, wet, dist) {
+  function strip(pan, wet, dist, bus) {
     const p = ctx.createStereoPanner();
     p.pan.value = clamp(pan, -1, 1);
-    p.connect(master);
+    p.connect(BUS[bus] || BUS.ui);
     if (wet > 0) { const s = ctx.createGain(); s.gain.value = wet; p.connect(s); s.connect(verbIn); }
     if (!dist) return p;
     const ws = ctx.createWaveShaper(); ws.curve = drive; ws.connect(p);
     return ws;
   }
   const live = () => ctx && !muted;
-  function tone({ f, f2, d, type = 'square', v = 0.08, delay = 0, pan = 0, wet = 0, dist = false, attack = 0.003, detune = 0 }) {
+  function tone({ f, f2, d, type = 'square', v = 0.08, delay = 0, pan = 0, wet = 0, dist = false, attack = 0.003, detune = 0, bus = 'ui' }) {
     if (!live()) return;
     const t = ctx.currentTime + delay;
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -376,10 +402,10 @@ const sfx = (() => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(v, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(g); g.connect(strip(pan, wet, dist));
+    o.connect(g); g.connect(strip(pan, wet, dist, bus));
     o.start(t); o.stop(t + d + 0.05);
   }
-  function hiss({ d, v, f = 2000, f2 = 80, type = 'lowpass', q = 0.7, delay = 0, pan = 0, pan2, wet = 0, dist = false, attack = 0.003 }) {
+  function hiss({ d, v, f = 2000, f2 = 80, type = 'lowpass', q = 0.7, delay = 0, pan = 0, pan2, wet = 0, dist = false, attack = 0.003, bus = 'ui' }) {
     if (!live()) return;
     const t = ctx.currentTime + delay;
     const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
@@ -390,14 +416,14 @@ const sfx = (() => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(v, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    const out = strip(pan, wet, dist);
+    const out = strip(pan, wet, dist, bus);
     if (pan2 !== undefined && out.pan) out.pan.linearRampToValueAtTime(clamp(pan2, -1, 1), t + d);
     s.connect(fl); fl.connect(g); g.connect(out);
     s.start(t, Math.random()); s.stop(t + d + 0.05);
   }
   const chime = (notes, len, gap, v = 0.045) => notes.forEach((f, i) => {
-    tone({ f, d: len, type: 'triangle', v, delay: i * gap, wet: 0.3 });
-    tone({ f: f * 2, d: len * 0.6, type: 'square', v: v * 0.22, delay: i * gap, wet: 0.3 });
+    tone({ f, d: len, type: 'triangle', v, delay: i * gap, wet: 0.3, bus: 'ui' });
+    tone({ f: f * 2, d: len * 0.6, type: 'square', v: v * 0.22, delay: i * gap, wet: 0.3, bus: 'ui' });
   });
   return {
     unlock,
@@ -405,7 +431,7 @@ const sfx = (() => {
     toggle() { muted = !muted; return muted; },
     isMuted: () => muted,
     // Music builds its own stems but shares this graph, so there is still one compressor, reverb and master.
-    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf } : null),
+    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf, mus: BUS.mus } : null),
     engine(level, boost, on) {
       if (!eng) return;
       const t = ctx.currentTime, run = on && !muted;
@@ -418,68 +444,68 @@ const sfx = (() => {
     },
     // Cannon: a bright zap, a body tone, a transient click and a low thump, panned to the wing that fired.
     laser(pan = 0) {
-      tone({ f: 2400, f2: 260, d: 0.13, type: 'sawtooth', v: 0.045, pan, wet: 0.1, detune: rand(-30, 30) });
-      tone({ f: 1250, f2: 180, d: 0.1, type: 'square', v: 0.02, pan });
-      hiss({ d: 0.04, v: 0.05, f: 7000, f2: 3000, type: 'highpass', pan });
-      tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan });
+      tone({ f: 2400, f2: 260, d: 0.13, type: 'sawtooth', v: 0.045, pan, wet: 0.1, detune: rand(-30, 30) , bus: 'wpn' });
+      tone({ f: 1250, f2: 180, d: 0.1, type: 'square', v: 0.02, pan , bus: 'wpn' });
+      hiss({ d: 0.04, v: 0.05, f: 7000, f2: 3000, type: 'highpass', pan , bus: 'wpn' });
+      tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan , bus: 'wpn' });
     },
     enemyLaser(v = 1, pan = 0) {
-      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25 });
-      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan });
+      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25 , bus: 'wpn' });
+      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan , bus: 'wpn' });
     },
     // Carrier point-defence cannon: a short, dry, distant rattle.
     pd(v = 1, pan = 0) {
-      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25 });
-      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan });
+      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25 , bus: 'wpn' });
+      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan , bus: 'wpn' });
     },
     // A shot that only just missed, sweeping across the stereo field.
     whiz(pan = 0, pan2 = 0) { hiss({ d: 0.35, v: 0.09, f: 1800, f2: 500, type: 'bandpass', q: 3, pan, pan2 }); },
     // An enemy screaming past: a swelling roar whose pitch drops as it passes.
     flyby(v = 1, pan = 0, pan2 = 0) {
-      hiss({ d: 0.9, v: 0.24 * v, f: 2400, f2: 320, type: 'bandpass', q: 1.2, pan, pan2, attack: 0.22, wet: 0.2 });
-      tone({ f: 190, f2: 70, d: 0.8, type: 'sawtooth', v: 0.05 * v, pan: pan2, attack: 0.18 });
+      hiss({ d: 0.9, v: 0.24 * v, f: 2400, f2: 320, type: 'bandpass', q: 1.2, pan, pan2, attack: 0.22, wet: 0.2 , bus: 'amb' });
+      tone({ f: 190, f2: 70, d: 0.8, type: 'sawtooth', v: 0.05 * v, pan: pan2, attack: 0.18 , bus: 'amb' });
     },
     missile(pan = 0) {
-      tone({ f: 90, f2: 40, d: 0.25, type: 'sine', v: 0.12, pan });
-      hiss({ d: 1.2, v: 0.16, f: 900, f2: 3200, type: 'bandpass', q: 0.9, pan, wet: 0.3, attack: 0.05 });
-      tone({ f: 160, f2: 620, d: 0.9, type: 'sawtooth', v: 0.03, pan, wet: 0.2 });
+      tone({ f: 90, f2: 40, d: 0.25, type: 'sine', v: 0.12, pan , bus: 'wpn' });
+      hiss({ d: 1.2, v: 0.16, f: 900, f2: 3200, type: 'bandpass', q: 0.9, pan, wet: 0.3, attack: 0.05 , bus: 'wpn' });
+      tone({ f: 160, f2: 620, d: 0.9, type: 'sawtooth', v: 0.03, pan, wet: 0.2 , bus: 'wpn' });
     },
     lock(ok) {
       if (ok) [0, 0.09, 0.18].forEach((delay) => tone({ f: 2093, d: 0.07, type: 'sine', v: 0.05, delay }));
       else tone({ f: 1318, d: 0.05, type: 'sine', v: 0.04 });
     },
     hit(pan = 0, v = 1) {
-      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan });
-      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan });
-      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan });
+      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan , bus: 'imp' });
+      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan , bus: 'imp' });
+      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan , bus: 'imp' });
     },
     shield() {
-      hiss({ d: 0.4, v: 0.16, f: 6000, f2: 1200, type: 'highpass', wet: 0.3 });
-      tone({ f: 420, f2: 90, d: 0.45, type: 'sine', v: 0.14 });
-      tone({ f: 1600, f2: 500, d: 0.25, type: 'triangle', v: 0.05, wet: 0.3 });
+      hiss({ d: 0.4, v: 0.16, f: 6000, f2: 1200, type: 'highpass', wet: 0.3 , bus: 'imp' });
+      tone({ f: 420, f2: 90, d: 0.45, type: 'sine', v: 0.14 , bus: 'imp' });
+      tone({ f: 1600, f2: 500, d: 0.25, type: 'triangle', v: 0.05, wet: 0.3 , bus: 'imp' });
     },
     hull() {
-      hiss({ d: 0.7, v: 0.4, f: 1800, f2: 90, dist: true });
-      tone({ f: 95, f2: 38, d: 0.5, type: 'sawtooth', v: 0.14, dist: true });
-      tone({ f: 310, f2: 140, d: 0.35, type: 'square', v: 0.04, delay: 0.05 });
+      hiss({ d: 0.7, v: 0.4, f: 1800, f2: 90, dist: true , bus: 'imp' });
+      tone({ f: 95, f2: 38, d: 0.5, type: 'sawtooth', v: 0.14, dist: true , bus: 'imp' });
+      tone({ f: 310, f2: 140, d: 0.35, type: 'square', v: 0.04, delay: 0.05 , bus: 'imp' });
     },
     // Explosion: a sub drop, a broadband crack that darkens into rumble, then crackling debris, all into the reverb.
     boom(big, v = 1, pan = 0) {
       const L = big ? 1.8 : 0.9;
-      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005 });
-      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004 });
+      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005 , bus: 'big' });
+      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004 , bus: 'big' });
       for (let i = 0; i < (big ? 9 : 5); i++) {
-        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4 });
+        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4 , bus: 'big' });
       }
     },
     rock(size, v = 1, pan = 0) {
-      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true });
-      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan });
-      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan });
+      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true , bus: 'big' });
+      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan , bus: 'big' });
+      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan , bus: 'big' });
     },
     saucer(v = 1, pan = 0) {
-      tone({ f: 1250, f2: 1550, d: 0.11, type: 'square', v: 0.02 * v, pan });
-      tone({ f: 625, f2: 780, d: 0.11, type: 'triangle', v: 0.02 * v, pan });
+      tone({ f: 1250, f2: 1550, d: 0.11, type: 'square', v: 0.02 * v, pan , bus: 'amb' });
+      tone({ f: 625, f2: 780, d: 0.11, type: 'triangle', v: 0.02 * v, pan , bus: 'amb' });
     },
     alarm() {
       music.duck(1.3);
@@ -492,13 +518,13 @@ const sfx = (() => {
     comm() { hiss({ d: 0.07, v: 0.05, f: 2600, f2: 2400, type: 'bandpass', q: 4 }); tone({ f: 1400, d: 0.03, type: 'square', v: 0.015, delay: 0.05 }); },
     squelch() { hiss({ d: 0.12, v: 0.04, f: 3000, f2: 1800, type: 'bandpass', q: 3 }); },
     beam() {
-      tone({ f: 120, f2: 300, d: 0.9, type: 'triangle', v: 0.08, wet: 0.4 });
-      hiss({ d: 1.0, v: 0.06, f: 400, f2: 1600, type: 'bandpass', q: 6, wet: 0.4 });
+      tone({ f: 120, f2: 300, d: 0.9, type: 'triangle', v: 0.08, wet: 0.4 , bus: 'amb' });
+      hiss({ d: 1.0, v: 0.06, f: 400, f2: 1600, type: 'bandpass', q: 6, wet: 0.4 , bus: 'amb' });
     },
     jump(pan = 0) {
-      tone({ f: 60, f2: 1600, d: 0.6, type: 'sine', v: 0.06, pan, wet: 0.5 });
-      hiss({ d: 0.6, v: 0.09, f: 8000, f2: 600, type: 'highpass', pan, wet: 0.5 });
-      tone({ f: 50, f2: 30, d: 0.5, type: 'sine', v: 0.1, delay: 0.45, pan });
+      tone({ f: 60, f2: 1600, d: 0.6, type: 'sine', v: 0.06, pan, wet: 0.5 , bus: 'big' });
+      hiss({ d: 0.6, v: 0.09, f: 8000, f2: 600, type: 'highpass', pan, wet: 0.5 , bus: 'big' });
+      tone({ f: 50, f2: 30, d: 0.5, type: 'sine', v: 0.1, delay: 0.45, pan , bus: 'big' });
     },
     // All four jingles are rooted on C so they sit on the music bed instead of fighting it: the wins are
     // C major over the bed's C minor, the capture cue falls through C minor. Each ducks the music under
@@ -538,11 +564,11 @@ const music = (() => {
   let inten = 0, dark = 0, beam = 0, level = 0;
 
   function build(bus) {
-    const { ctx, master, verbIn } = bus;
+    const { ctx, mus, verbIn } = bus;
     outG = ctx.createGain(); outG.gain.value = 0;
     duckG = ctx.createGain(); duckG.gain.value = 1;
     outG.connect(duckG);
-    duckG.connect(master);
+    duckG.connect(mus);
     const send = ctx.createGain(); send.gain.value = 0.4;
     duckG.connect(send); send.connect(verbIn);
     const stem = (v) => { const g = ctx.createGain(); g.gain.value = v; g.connect(outG); return g; };
