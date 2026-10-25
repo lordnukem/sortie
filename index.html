@@ -349,7 +349,7 @@ const sfx = (() => {
         BUS = {
           wpn: comp(-20, 3, 0.003, 0.11, 0.95),   // lasers, point defence, missiles
           imp: comp(-15, 4, 0.002, 0.16, 1.15),   // hits, shields, hull
-          big: comp(-11, 2.4, 0.006, 0.34, 1.05), // explosions, rocks, jump flashes
+          big: comp(-9, 1.8, 0.008, 0.28, 1.0),   // explosions, rocks, jump flashes
           amb: plain(0.9),                        // engine, saucer hum, fly-bys, tractor beam
           ui: plain(1),                           // lock tones, radio, jingles, alarm
           vox: plain(1.1),                        // Halcyon control, slightly forward of the rest
@@ -432,7 +432,7 @@ const sfx = (() => {
     toggle() { muted = !muted; return muted; },
     isMuted: () => muted,
     // Music builds its own stems but shares this graph, so there is still one compressor, reverb and master.
-    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf, mus: BUS.mus, vox: BUS.vox } : null),
+    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf, mus: BUS.mus, vox: BUS.vox, buses: BUS } : null),
     engine(level, boost, on) {
       if (!eng) return;
       const t = ctx.currentTime, run = on && !muted;
@@ -445,68 +445,72 @@ const sfx = (() => {
     },
     // Cannon: a bright zap, a body tone, a transient click and a low thump, panned to the wing that fired.
     laser(pan = 0) {
-      tone({ f: 2400, f2: 260, d: 0.13, type: 'sawtooth', v: 0.045, pan, wet: 0.1, detune: rand(-30, 30) , bus: 'wpn' });
-      tone({ f: 1250, f2: 180, d: 0.1, type: 'square', v: 0.02, pan , bus: 'wpn' });
-      hiss({ d: 0.04, v: 0.05, f: 7000, f2: 3000, type: 'highpass', pan , bus: 'wpn' });
-      tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan , bus: 'wpn' });
+      tone({ f: 2400, f2: 260, d: 0.13, type: 'sawtooth', v: 0.045, pan, wet: 0.1, detune: rand(-30, 30), bus: 'wpn' });
+      tone({ f: 1250, f2: 180, d: 0.1, type: 'square', v: 0.02, pan, bus: 'wpn' });
+      hiss({ d: 0.04, v: 0.05, f: 7000, f2: 3000, type: 'highpass', pan, bus: 'wpn' });
+      tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan, bus: 'wpn' });
     },
     enemyLaser(v = 1, pan = 0) {
-      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25 , bus: 'wpn' });
-      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan , bus: 'wpn' });
+      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25, bus: 'wpn' });
+      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan, bus: 'wpn' });
     },
     // Carrier point-defence cannon: a short, dry, distant rattle.
     pd(v = 1, pan = 0) {
-      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25 , bus: 'wpn' });
-      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan , bus: 'wpn' });
+      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25, bus: 'wpn' });
+      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan, bus: 'wpn' });
     },
     // A shot that only just missed, sweeping across the stereo field.
     whiz(pan = 0, pan2 = 0) { hiss({ d: 0.35, v: 0.09, f: 1800, f2: 500, type: 'bandpass', q: 3, pan, pan2 }); },
     // An enemy screaming past: a swelling roar whose pitch drops as it passes.
     flyby(v = 1, pan = 0, pan2 = 0) {
-      hiss({ d: 0.9, v: 0.24 * v, f: 2400, f2: 320, type: 'bandpass', q: 1.2, pan, pan2, attack: 0.22, wet: 0.2 , bus: 'amb' });
-      tone({ f: 190, f2: 70, d: 0.8, type: 'sawtooth', v: 0.05 * v, pan: pan2, attack: 0.18 , bus: 'amb' });
+      hiss({ d: 0.9, v: 0.24 * v, f: 2400, f2: 320, type: 'bandpass', q: 1.2, pan, pan2, attack: 0.22, wet: 0.2, bus: 'amb' });
+      tone({ f: 190, f2: 70, d: 0.8, type: 'sawtooth', v: 0.05 * v, pan: pan2, attack: 0.18, bus: 'amb' });
     },
     missile(pan = 0) {
-      tone({ f: 90, f2: 40, d: 0.25, type: 'sine', v: 0.12, pan , bus: 'wpn' });
-      hiss({ d: 1.2, v: 0.16, f: 900, f2: 3200, type: 'bandpass', q: 0.9, pan, wet: 0.3, attack: 0.05 , bus: 'wpn' });
-      tone({ f: 160, f2: 620, d: 0.9, type: 'sawtooth', v: 0.03, pan, wet: 0.2 , bus: 'wpn' });
+      tone({ f: 90, f2: 40, d: 0.25, type: 'sine', v: 0.12, pan, bus: 'wpn' });
+      hiss({ d: 1.2, v: 0.16, f: 900, f2: 3200, type: 'bandpass', q: 0.9, pan, wet: 0.3, attack: 0.05, bus: 'wpn' });
+      tone({ f: 160, f2: 620, d: 0.9, type: 'sawtooth', v: 0.03, pan, wet: 0.2, bus: 'wpn' });
     },
     lock(ok) {
       if (ok) [0, 0.09, 0.18].forEach((delay) => tone({ f: 2093, d: 0.07, type: 'sine', v: 0.05, delay }));
       else tone({ f: 1318, d: 0.05, type: 'sine', v: 0.04 });
     },
     hit(pan = 0, v = 1) {
-      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan , bus: 'imp' });
-      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan , bus: 'imp' });
-      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan , bus: 'imp' });
+      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan, bus: 'imp' });
+      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan, bus: 'imp' });
+      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan, bus: 'imp' });
     },
     shield() {
-      hiss({ d: 0.4, v: 0.16, f: 6000, f2: 1200, type: 'highpass', wet: 0.3 , bus: 'imp' });
-      tone({ f: 420, f2: 90, d: 0.45, type: 'sine', v: 0.14 , bus: 'imp' });
-      tone({ f: 1600, f2: 500, d: 0.25, type: 'triangle', v: 0.05, wet: 0.3 , bus: 'imp' });
+      if (samples.play('shield', 1, 0, 'imp')) return;
+      hiss({ d: 0.4, v: 0.16, f: 6000, f2: 1200, type: 'highpass', wet: 0.3, bus: 'imp' });
+      tone({ f: 420, f2: 90, d: 0.45, type: 'sine', v: 0.14, bus: 'imp' });
+      tone({ f: 1600, f2: 500, d: 0.25, type: 'triangle', v: 0.05, wet: 0.3, bus: 'imp' });
     },
     hull() {
-      hiss({ d: 0.7, v: 0.4, f: 1800, f2: 90, dist: true , bus: 'imp' });
-      tone({ f: 95, f2: 38, d: 0.5, type: 'sawtooth', v: 0.14, dist: true , bus: 'imp' });
-      tone({ f: 310, f2: 140, d: 0.35, type: 'square', v: 0.04, delay: 0.05 , bus: 'imp' });
+      if (samples.play('hull', 1, 0, 'imp')) return;
+      hiss({ d: 0.7, v: 0.4, f: 1800, f2: 90, dist: true, bus: 'imp' });
+      tone({ f: 95, f2: 38, d: 0.5, type: 'sawtooth', v: 0.14, dist: true, bus: 'imp' });
+      tone({ f: 310, f2: 140, d: 0.35, type: 'square', v: 0.04, delay: 0.05, bus: 'imp' });
     },
     // Explosion: a sub drop, a broadband crack that darkens into rumble, then crackling debris, all into the reverb.
     boom(big, v = 1, pan = 0) {
+      if (samples.play(big ? 'boom-big' : 'boom-small', v, pan, 'big')) return;
       const L = big ? 1.8 : 0.9;
-      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005 , bus: 'big' });
-      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004 , bus: 'big' });
+      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005, bus: 'big' });
+      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004, bus: 'big' });
       for (let i = 0; i < (big ? 9 : 5); i++) {
-        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4 , bus: 'big' });
+        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4, bus: 'big' });
       }
     },
     rock(size, v = 1, pan = 0) {
-      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true , bus: 'big' });
-      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan , bus: 'big' });
-      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan , bus: 'big' });
+      if (samples.play(`rock-${clamp(size, 1, 3)}`, v, pan, 'big')) return;
+      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true, bus: 'big' });
+      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan, bus: 'big' });
+      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan, bus: 'big' });
     },
     saucer(v = 1, pan = 0) {
-      tone({ f: 1250, f2: 1550, d: 0.11, type: 'square', v: 0.02 * v, pan , bus: 'amb' });
-      tone({ f: 625, f2: 780, d: 0.11, type: 'triangle', v: 0.02 * v, pan , bus: 'amb' });
+      tone({ f: 1250, f2: 1550, d: 0.11, type: 'square', v: 0.02 * v, pan, bus: 'amb' });
+      tone({ f: 625, f2: 780, d: 0.11, type: 'triangle', v: 0.02 * v, pan, bus: 'amb' });
     },
     alarm() {
       music.duck(1.3);
@@ -519,13 +523,14 @@ const sfx = (() => {
     comm() { hiss({ d: 0.07, v: 0.05, f: 2600, f2: 2400, type: 'bandpass', q: 4 }); tone({ f: 1400, d: 0.03, type: 'square', v: 0.015, delay: 0.05 }); },
     squelch() { hiss({ d: 0.12, v: 0.04, f: 3000, f2: 1800, type: 'bandpass', q: 3 }); },
     beam() {
-      tone({ f: 120, f2: 300, d: 0.9, type: 'triangle', v: 0.08, wet: 0.4 , bus: 'amb' });
-      hiss({ d: 1.0, v: 0.06, f: 400, f2: 1600, type: 'bandpass', q: 6, wet: 0.4 , bus: 'amb' });
+      if (samples.play('beam', 1, 0, 'amb')) return;
+      tone({ f: 120, f2: 300, d: 0.9, type: 'triangle', v: 0.08, wet: 0.4, bus: 'amb' });
+      hiss({ d: 1.0, v: 0.06, f: 400, f2: 1600, type: 'bandpass', q: 6, wet: 0.4, bus: 'amb' });
     },
     jump(pan = 0) {
-      tone({ f: 60, f2: 1600, d: 0.6, type: 'sine', v: 0.06, pan, wet: 0.5 , bus: 'big' });
-      hiss({ d: 0.6, v: 0.09, f: 8000, f2: 600, type: 'highpass', pan, wet: 0.5 , bus: 'big' });
-      tone({ f: 50, f2: 30, d: 0.5, type: 'sine', v: 0.1, delay: 0.45, pan , bus: 'big' });
+      tone({ f: 60, f2: 1600, d: 0.6, type: 'sine', v: 0.06, pan, wet: 0.5, bus: 'big' });
+      hiss({ d: 0.6, v: 0.09, f: 8000, f2: 600, type: 'highpass', pan, wet: 0.5, bus: 'big' });
+      tone({ f: 50, f2: 30, d: 0.5, type: 'sine', v: 0.1, delay: 0.45, pan, bus: 'big' });
     },
     // All four jingles are rooted on C so they sit on the music bed instead of fighting it: the wins are
     // C major over the bed's C minor, the capture cue falls through C minor. Each ducks the music under
@@ -877,12 +882,98 @@ const radio = (() => {
   };
 })();
 
+// ---------------------------------------------------------------- the effect pack: rendered one-shots
+// Explosions, asteroid breaks and impacts are rendered ahead of time by sortie-voice/sfx_render.py
+// and played back here. The reason is detail, not authenticity: a convincing explosion needs a
+// tail whose spectrum collapses as it decays plus a hundred debris grains, and a per-frame budget
+// can afford neither -- the live version does it with three noise bursts.
+//
+// Several variants of each ship, picked at random and detuned a few percent per hit, so a repeated
+// kill is never the same waveform. Anything fired constantly -- laser bolts, whizz-bys, lock tones
+// -- stays synthesised, where per-shot variation is free and samples would be the repetitive
+// option. If the pack does not load, every sound falls back to the live synthesis, exactly as the
+// ship models and textures do.
+//
+// These bypass the shared reverb: each clip already carries its own convolution tail.
+const samples = (() => {
+  const BASE = 'assets/sfx/';
+  let B = null, manifest = null, fetching = false;
+  const bytes = new Map();
+  const buffers = new Map();   // name -> one AudioBuffer per variant
+  const key = (name, v) => `${name}-${v}`;
+
+  async function prefetch() {
+    if (fetching) return;
+    fetching = true;
+    try {
+      manifest = await (await fetch(BASE + 'manifest.json')).json();
+      const jobs = [];
+      for (const [name, count] of Object.entries(manifest.variants)) {
+        for (let v = 1; v <= count; v++) {
+          jobs.push(fetch(BASE + key(name, v) + '.mp3')
+            .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+            .then((b) => bytes.set(key(name, v), b))
+            .catch(() => {}));
+        }
+      }
+      await Promise.all(jobs);
+    } catch (err) {
+      console.warn('Effect pack unavailable; using the live synthesis.', err);
+      manifest = null;
+    }
+  }
+
+  async function decodeAll() {
+    if (!manifest || !B) return;
+    for (const [name, count] of Object.entries(manifest.variants)) {
+      const list = [];
+      for (let v = 1; v <= count; v++) {
+        const raw = bytes.get(key(name, v));
+        if (!raw) continue;
+        // decodeAudioData detaches the buffer, so hand it a copy.
+        try { list.push(await B.ctx.decodeAudioData(raw.slice(0))); } catch { /* synth covers it */ }
+      }
+      if (list.length) buffers.set(name, list);
+    }
+  }
+
+  return {
+    prefetch,
+    unlock() {
+      if (B) return;
+      B = sfx.bus();
+      if (!B) return;
+      decodeAll();
+    },
+    // Returns false when it cannot play, so each caller falls through to its synth version.
+    play(name, v = 1, pan = 0, bus = 'big') {
+      if (!B || sfx.isMuted()) return false;
+      const list = buffers.get(name);
+      if (!list || !list.length) return false;
+      const ctx = B.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = list[(Math.random() * list.length) | 0];
+      // A little detune on top of the variant choice, so even the same variant twice running
+      // does not read as a repeat.
+      src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.12;
+      const g = ctx.createGain();
+      g.gain.value = clamp(v, 0, 1.6);
+      const p = ctx.createStereoPanner();
+      p.pan.value = clamp(pan, -1, 1);
+      src.connect(g); g.connect(p); p.connect(B.buses[bus] || B.buses.big);
+      src.start();
+      return true;
+    },
+  };
+})();
+
 // Bring the whole audio stack up on the first real input. The voice pack has to start
 // loading here rather than at launch: it arrives asynchronously, and the launch callout is the
 // very first thing the game says.
 function audioUnlock() {
   sfx.unlock();
   radio.unlock();
+  samples.unlock();
 }
 
 // ---------------------------------------------------------------- the voice pack
@@ -3953,6 +4044,7 @@ function update(dt) {
 const frameClock = new THREE.Clock();
 loadAssets();
 radio.prefetch();
+samples.prefetch();
 setTimeout(settleAssets, 10000);
 setupTitle();
 function frame() {

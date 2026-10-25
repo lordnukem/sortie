@@ -121,6 +121,35 @@ controller gets harder to hear.
 
 Rendering the pack: `sortie-voice/render_pack.py` (see `radio.py` for the chain).
 
+## Effects
+
+Explosions, asteroid breaks and impacts are rendered offline by
+`sortie-voice/sfx_render.py` (23 clips, ~290 KiB) rather than synthesised live.
+The reason is detail, not authenticity — nothing in this game was ever recorded,
+and screen explosions are designed anyway. What per-frame Web Audio cannot afford
+is a tail whose spectrum collapses as it decays plus a hundred debris grains; the
+live version does it with three noise bursts.
+
+Each sound ships several variants, picked at random and detuned ±6% per hit, so a
+repeated kill is never the same waveform. Anything fired constantly — laser
+bolts, whizz-bys, lock tones — **stays synthesised**, where per-shot variation is
+free and samples would be the repetitive option. If the pack fails to load every
+sound falls back to the live synthesis.
+
+The explosion is seven layers: a saturated crack for force, a body sweeping ~5 kHz
+down to ~150 Hz, an overdriven sub, granular debris, a pitched-down copy of itself,
+a real FFT convolution tail, and finally air absorption applied to the *finished
+mix*. That last step matters: applied per-layer, the low end decayed first and left
+bright reverb on top, so the composite got **brighter** as it decayed — backwards
+from a real blast. Sweeping the mix is what makes the collapse monotonic.
+
+Hull and shield are deliberate opposites: the hull is six inharmonic resonators
+ringing like a struck plate, 96% of its energy under 300 Hz; the shield is glassy
+and shimmering with 50% above 2 kHz. Rock is dry — stone does not ring — and the
+three sizes separate by grain band, not just by the thud.
+
+Sampled clips bypass the shared reverb, since each already carries its own tail.
+
 ## Audio routing
 
 Everything shares one `AudioContext`. Each category has its own submix bus with
