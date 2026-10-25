@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Galaga Squadron</title>
+<title>Sortie!</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -130,8 +130,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 
 <div class="overlay" id="title">
   <section class="brief">
-    <p class="eyebrow">Fleet Strike Command · Sortie briefing</p>
-    <h1 class="name">GALAGA<span>SQUADRON</span></h1>
+    <p class="eyebrow">Fleet Strike Command · Mission briefing</p>
+    <h1 class="name">SORTIE!<span>Varan system</span></h1>
     <p class="lede">The Swarm has jumped into the Varan system. Launch from the carrier <b>Halcyon</b>, break their attack formations before they reach the fleet, and keep clear of the Wardens: their tractor beams take fighters whole.</p>
     <div class="cols">
       <div class="panel">
@@ -1798,10 +1798,10 @@ let comms = [];
 const tagCounter = { drone: 0, lancer: 0, warden: 0, raider: 0 };
 
 function loadHi() {
-  try { return parseInt(localStorage.getItem('galagasquadron.hi') || '0', 10) || 0; } catch { return 0; }
+  try { return parseInt(localStorage.getItem('sortie.hi') || '0', 10) || 0; } catch { return 0; }
 }
 function saveHi() {
-  try { localStorage.setItem('galagasquadron.hi', String(hi)); } catch { /* storage unavailable */ }
+  try { localStorage.setItem('sortie.hi', String(hi)); } catch { /* storage unavailable */ }
 }
 
 function comm(who, text, kind = 'friend') {
@@ -2494,7 +2494,7 @@ function loseShip(msg) {
   else { player.respawnT = 4; showBanner('FIGHTER LOST', 'Launching a replacement', 3.5); }
 }
 
-// Galaga's capture, in first person: the beam drags your fighter into the Warden.
+// A tractor-beam capture, in first person: the beam drags your fighter into the Warden.
 function startCapture(w) {
   player.capturing = { w, t: 0, from: player.rig.position.clone() };
   player.alive = false;

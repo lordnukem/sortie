@@ -1,4 +1,4 @@
-# Galaga Squadron
+# Sortie!
 
 A first-person space combat game that runs entirely in the browser. Launch from
 the carrier *Halcyon*, break the Swarm's attack formations before they reach the
@@ -9,8 +9,8 @@ server-side code — `index.html` plus a folder of textures is the whole thing.
 
 ## Play
 
-- **GitHub Pages:** https://lordnukem.github.io/galaga-squadron/
-- **VPS:** http://72.62.196.152/galaga-squadron/
+- **GitHub Pages:** https://lordnukem.github.io/sortie/
+- **VPS:** http://72.62.196.152/sortie/
 
 Needs a browser with WebGL2. Gamepad support requires HTTPS, so controllers work
 on the Pages URL but not over plain HTTP.
@@ -53,9 +53,9 @@ It is static files; any web server will do. On the VPS it is an additive nginx
 `location` block, so it shares the default server without affecting anything else:
 
 ```nginx
-location = /galaga-squadron { return 301 /galaga-squadron/; }
-location /galaga-squadron/ {
-    alias /var/www/galaga-squadron/;
+location = /sortie { return 301 /sortie/; }
+location /sortie/ {
+    alias /var/www/sortie/;
     index index.html;
     try_files $uri $uri/ =404;
     gzip on;
