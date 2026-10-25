@@ -39,6 +39,16 @@ textures:
 - **Sound** is synthesised with the Web Audio API — no audio files. Engines are
   detuned sawtooths through a resonant lowpass; explosions are filtered noise
   bursts into a generated convolution reverb.
+- **The score is adaptive and also generated** — there is no music file. Four
+  stems (a held pad, a bass pulse, an arpeggio and percussion) are scheduled on
+  a sixteenth-note grid at 100 BPM and faded in and out by how dangerous the
+  fight is, measured from how many Swarm ships are alive, how many are within
+  220 m, and how deep into the waves you are. Between waves it thins to a single
+  held chord; with the hull under 34 % the third bar of the progression turns to
+  bII, and a tractor beam drags the whole bed a third of a semitone flat.
+  Everything is in C — the bed is C natural minor on a i–VI–III–VII vamp, and
+  the victory jingles lift to C major over it, ducking the music under
+  themselves so the thirds do not collide.
 - **Callouts** from Halcyon control use the browser's speech synthesis, with
   per-phrase rate/pitch shaping and a cooldown per message so repeats don't pile
   up.

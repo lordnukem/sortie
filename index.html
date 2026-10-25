@@ -349,13 +349,7 @@ const sfx = (() => {
         const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 500; nf.Q.value = 0.8;
         const ng = ctx.createGain(); ng.gain.value = 0;
         ns.connect(nf); nf.connect(ng); ng.connect(master); ns.start();
-        // Ambience: a quiet, slowly breathing pad under everything.
-        const pad = ctx.createGain(); pad.gain.value = 0.012;
-        pad.connect(master); pad.connect(verbIn);
-        for (const fr of [55, 82.4, 110.3]) osc0('sine', fr).connect(pad);
-        const lg = ctx.createGain(); lg.gain.value = 0.008;
-        osc0('sine', 0.07).connect(lg); lg.connect(pad.gain);
-        eng = { o1, o2, sub, f, g, nf, ng, pad };
+        eng = { o1, o2, sub, f, g, nf, ng };
       }
       if (ctx.state === 'suspended') ctx.resume();
     } catch { /* audio unavailable */ }
@@ -407,8 +401,11 @@ const sfx = (() => {
   });
   return {
     unlock,
-    toggle() { muted = !muted; if (eng) eng.pad.gain.value = muted ? 0 : 0.012; return muted; },
+    // The music module reads isMuted() every frame and fades itself out, so the bed is not handled here.
+    toggle() { muted = !muted; return muted; },
     isMuted: () => muted,
+    // Music builds its own stems but shares this graph, so there is still one compressor, reverb and master.
+    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf } : null),
     engine(level, boost, on) {
       if (!eng) return;
       const t = ctx.currentTime, run = on && !muted;
@@ -485,6 +482,7 @@ const sfx = (() => {
       tone({ f: 625, f2: 780, d: 0.11, type: 'triangle', v: 0.02 * v, pan });
     },
     alarm() {
+      music.duck(1.3);
       [0, 0.28].forEach((delay) => {
         tone({ f: 740, d: 0.13, type: 'square', v: 0.035, delay });
         tone({ f: 554, d: 0.13, type: 'square', v: 0.035, delay: delay + 0.14 });
@@ -502,10 +500,162 @@ const sfx = (() => {
       hiss({ d: 0.6, v: 0.09, f: 8000, f2: 600, type: 'highpass', pan, wet: 0.5 });
       tone({ f: 50, f2: 30, d: 0.5, type: 'sine', v: 0.1, delay: 0.45, pan });
     },
-    wave() { chime([392, 523, 659, 784], 0.22, 0.12); },
-    rescued() { chime([523, 659, 784, 1046], 0.25, 0.11); },
-    captured() { chime([523, 494, 440, 392, 349, 330], 0.25, 0.17); },
-    extra() { chime([784, 988, 1175, 1568], 0.18, 0.08); },
+    // All four jingles are rooted on C so they sit on the music bed instead of fighting it: the wins are
+    // C major over the bed's C minor, the capture cue falls through C minor. Each ducks the music under
+    // itself, which is what keeps the major third clear of the bed's minor third.
+    wave() { music.duck(1.1); chime([392, 523, 659, 784], 0.22, 0.12); },                   // G4 C5 E5 G5
+    rescued() { music.duck(1.2); chime([523, 659, 784, 1046], 0.25, 0.11); },                // C5 E5 G5 C6
+    captured() { music.duck(1.9); chime([523, 466, 415, 392, 349, 311], 0.25, 0.17); },      // C5 Bb4 Ab4 G4 F4 Eb4
+    extra() { music.duck(0.9); chime([1046, 1318, 1568, 2093], 0.18, 0.08, 0.034); },        // C6 E6 G6 C7
+  };
+})();
+
+// ---------------------------------------------------------------- music: an adaptive score, generated in the same graph as the effects
+// There are no audio files here either. Four stems - a held pad, a bass pulse, an arpeggio and percussion - are
+// scheduled on a sixteenth-note grid and faded in and out by how dangerous the fight currently is, so the score
+// thickens as the Swarm closes and thins back to one held chord between waves. It is in C, which is the key the
+// jingles use: the bed is C natural minor, and the victory jingles lift to C major over it.
+const music = (() => {
+  const BPM = 100, STEP = 60 / BPM / 4, LOOKAHEAD = 0.35;
+  // i - VI - III - VII in C minor, one bar each: the Aeolian vamp. Semitones relative to C2.
+  const PROG = [
+    { root: 0,  tones: [0, 3, 7, 10] },    // Cm7
+    { root: -4, tones: [-4, 0, 3, 8] },    // Ab
+    { root: 3,  tones: [3, 7, 10, 15] },   // Eb
+    { root: -2, tones: [-2, 2, 5, 10] },   // Bb
+  ];
+  // Once the hull is going, the third bar turns to bII - the Phrygian colour that refuses to resolve.
+  const DANGER_BAR = { root: 1, tones: [1, 4, 8, 13] };
+  const C2 = 65.406;
+  const hz = (semi) => C2 * Math.pow(2, semi / 12);
+  // The pad takes the root, its fifth, and the chord's third and top note an octave up.
+  const voicing = (ch) => [ch.tones[0], ch.tones[0] + 7, ch.tones[1] + 12, ch.tones[3] + 12];
+
+  let B = null, live = false;
+  let outG, duckG, padG, bassG, arpG, percG, padFilt, arpFilt;
+  let padOsc = [], padNow = voicing(PROG[0]);
+  let i16 = 0, nextT = 0;
+  let inten = 0, dark = 0, beam = 0, level = 0;
+
+  function build(bus) {
+    const { ctx, master, verbIn } = bus;
+    outG = ctx.createGain(); outG.gain.value = 0;
+    duckG = ctx.createGain(); duckG.gain.value = 1;
+    outG.connect(duckG);
+    duckG.connect(master);
+    const send = ctx.createGain(); send.gain.value = 0.4;
+    duckG.connect(send); send.connect(verbIn);
+    const stem = (v) => { const g = ctx.createGain(); g.gain.value = v; g.connect(outG); return g; };
+    padG = stem(0.5); bassG = stem(0); arpG = stem(0); percG = stem(0);
+    // The pad is the one layer that never stops: four held voices through a lowpass that opens with intensity.
+    padFilt = ctx.createBiquadFilter();
+    padFilt.type = 'lowpass'; padFilt.frequency.value = 340; padFilt.Q.value = 0.9;
+    padFilt.connect(padG);
+    padOsc = padNow.map((semi, k) => {
+      const o = ctx.createOscillator();
+      o.type = k < 2 ? 'sawtooth' : 'triangle';
+      o.frequency.value = hz(semi);
+      o.detune.value = k % 2 ? 7 : -7;
+      const g = ctx.createGain();
+      g.gain.value = k < 2 ? 0.17 : 0.1;
+      o.connect(g); g.connect(padFilt);
+      o.start();
+      return o;
+    });
+    arpFilt = ctx.createBiquadFilter();
+    arpFilt.type = 'lowpass'; arpFilt.frequency.value = 800; arpFilt.Q.value = 7;
+    arpFilt.connect(arpG);
+    i16 = 0;
+    nextT = ctx.currentTime + 0.08;
+    live = true;
+  }
+
+  function note(dest, f, d, type, v, t, attack = 0.004, f2 = 0) {
+    const ctx = B.ctx;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(dest);
+    o.start(t); o.stop(t + d + 0.03);
+  }
+  function snap(dest, d, v, f, f2, type, q, t) {
+    const ctx = B.ctx;
+    const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = B.noise; s.loop = true;
+    fl.type = type; fl.Q.value = q;
+    fl.frequency.setValueAtTime(f, t);
+    fl.frequency.exponentialRampToValueAtTime(f2, t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    s.connect(fl); fl.connect(g); g.connect(dest);
+    s.start(t, Math.random()); s.stop(t + d + 0.03);
+  }
+
+  // One sixteenth of the grid. `i` counts sixteenths through the whole four-bar loop.
+  function emitStep(i, t) {
+    const bar = (i >> 4) % PROG.length, s = i & 15;
+    const ch = dark > 0.6 && bar === 2 ? DANGER_BAR : PROG[bar];
+    if (s === 0) padNow = voicing(ch);
+    // Bass: root on every beat, the fifth on the off-beat once the fight warms up.
+    if (inten > 0.08 && s % 4 === 0) note(bassG, hz(ch.root - 12), 0.26, 'square', 0.5, t);
+    if (inten > 0.45 && s % 4 === 2) note(bassG, hz(ch.root - 5), 0.15, 'square', 0.28, t);
+    // Arpeggio: eighths, doubling to sixteenths at the top end, stepping up an octave every other beat.
+    if (inten > 0.25 && (s % 2 === 0 || inten > 0.7)) {
+      const semi = ch.tones[i % ch.tones.length] + (((i >> 2) & 1) ? 24 : 12);
+      note(arpFilt, hz(semi), inten > 0.7 ? 0.1 : 0.17, 'sawtooth', 0.22, t);
+    }
+    // Percussion: kick on the beat, a snap on two and four, hats doubling up when it is really busy.
+    if (inten > 0.35 && s % 4 === 0) note(percG, 120, 0.17, 'sine', 0.85, t, 0.002, 38);
+    if (inten > 0.5 && (s === 4 || s === 12)) snap(percG, 0.13, 0.3, 2200, 500, 'bandpass', 1.2, t);
+    if (inten > 0.75 && s % 2 === 1) snap(percG, 0.045, 0.12, 7000, 4000, 'highpass', 0.7, t);
+  }
+
+  return {
+    // Called every frame with a snapshot of the fight; the score decides for itself what to do about it.
+    update(dt, g) {
+      if (!B) { const b = sfx.bus(); if (!b) return; B = b; build(b); }
+      if (!live) return;
+      const ctx = B.ctx, t0 = ctx.currentTime;
+      const playing = g.state === 'play' && !g.paused;
+      // How hard the fight is: how many are out there, how many are close, and how deep into the waves we are.
+      const pressure = clamp(g.enemies / 7, 0, 1) * 0.45 + clamp(g.near / 3, 0, 1) * 0.3 + clamp(g.wave / 9, 0, 1) * 0.25;
+      const target = !playing ? (g.state === 'title' ? 0.06 : 0) : g.alive ? clamp(0.18 + pressure, 0, 1) : 0.1;
+      inten = lerp(inten, target, damp(playing ? 0.7 : 1.6, dt));
+      dark = lerp(dark, playing && g.alive && g.hull < 34 ? 1 : 0, damp(1.2, dt));
+      beam = lerp(beam, g.inBeam || g.capturing ? 1 : 0, damp(2.5, dt));
+      level = sfx.isMuted() || (!playing && g.state !== 'title') ? 0 : 0.5 + inten * 0.2;
+
+      outG.gain.setTargetAtTime(level, t0, 0.35);
+      padG.gain.setTargetAtTime(0.5 - inten * 0.13 + dark * 0.1, t0, 0.5);
+      bassG.gain.setTargetAtTime(clamp(inten * 1.5, 0, 1) * 0.5, t0, 0.3);
+      arpG.gain.setTargetAtTime(clamp((inten - 0.2) * 1.6, 0, 1) * 0.3, t0, 0.3);
+      percG.gain.setTargetAtTime(clamp((inten - 0.3) * 1.6, 0, 1) * 0.26, t0, 0.3);
+      padFilt.frequency.setTargetAtTime(320 + inten * 900 - dark * 110, t0, 0.5);
+      arpFilt.frequency.setTargetAtTime(700 + inten * 2600, t0, 0.3);
+      // A tractor beam drags the whole bed flat by about half a semitone. Nothing else in the game does this.
+      padOsc.forEach((o, k) => o.frequency.setTargetAtTime(hz(padNow[k]) * (1 - beam * 0.03), t0, 0.22));
+
+      // Keep the grid a little ahead of the audio clock. After a tab switch, resync instead of catching up.
+      if (nextT < t0) { nextT = t0 + 0.05; i16 = i16 - (i16 & 15); }
+      for (let guard = 0; nextT < t0 + LOOKAHEAD && guard < 64; guard++) {
+        if (level > 0.001) emitStep(i16, nextT);
+        i16 = (i16 + 1) % (16 * PROG.length);
+        nextT += STEP;
+      }
+    },
+    // Dip the music so a callout or a jingle stays intelligible, then bring it back.
+    duck(sec = 1, amount = 0.3) {
+      if (!live) return;
+      const t = B.ctx.currentTime;
+      duckG.gain.cancelScheduledValues(t);
+      duckG.gain.setTargetAtTime(amount, t, 0.08);
+      duckG.gain.setTargetAtTime(1, t + Math.max(0.25, sec), 0.45);
+    },
   };
 })();
 
@@ -564,6 +714,7 @@ const voice = (() => {
       last[k] = now;
       if (urgent) { synth.cancel(); queued = 0; }
       else if (queued >= 7) return;
+      music.duck(1.1 + segs.reduce((n, seg) => n + seg[0].length, 0) * 0.05);
       sfx.comm();
       segs.forEach(([text, m], i) => {
         const u = new SpeechSynthesisUtterance(text);
@@ -3406,6 +3557,17 @@ function update(dt) {
   sky.position.copy(_cw);
   updateDust(_cw, state === 'play' ? player.vel : V(0, 0, 0));
   sfx.engine(player.speed / MAX_SPEED, player.boosting, state === 'play' && player.alive && !paused);
+  // How many of them are close enough to feel: the score leans on this more than the raw count.
+  let near = 0;
+  if (player.alive) {
+    for (const e of enemies) {
+      if (!e.dead && e.state !== 'show' && e.obj.position.distanceToSquared(player.rig.position) < 220 * 220) near++;
+    }
+  }
+  music.update(dt, {
+    state, paused, wave, near, enemies: enemies.length,
+    hull: player.hull, alive: player.alive, inBeam: player.inBeam, capturing: !!player.capturing,
+  });
 }
 
 const frameClock = new THREE.Clock();
