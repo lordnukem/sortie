@@ -119,12 +119,12 @@ generated at runtime too, independent of the voice.
 Link quality follows range to the *Halcyon*: drift far enough out and your own
 controller gets harder to hear.
 
-Rendering the pack: `sortie-voice/render_pack.py` (see `radio.py` for the chain).
+Rendering the pack: `tools/render_pack.py` (see `tools/README.md`).
 
 ## Effects
 
 Explosions, asteroid breaks and impacts are rendered offline by
-`sortie-voice/sfx_render.py` (23 clips, ~290 KiB) rather than synthesised live.
+`tools/sfx_render.py` (23 clips, ~290 KiB) rather than synthesised live.
 The reason is detail, not authenticity — nothing in this game was ever recorded,
 and screen explosions are designed anyway. What per-frame Web Audio cannot afford
 is a tail whose spectrum collapses as it decays plus a hundred debris grains; the

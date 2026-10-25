@@ -5,3 +5,13 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+
+# Audio tooling: the virtualenv, the downloaded voice model (~64 MB) and render
+# intermediates. tools/README.md says how to recreate them.
+tools/.venv/
+tools/models/
+tools/build/
+
+# Python bytecode (the renderers import each other, which generates these)
+__pycache__/
+*.py[cod]
