@@ -1,0 +1,301 @@
+{
+ "clips": {
+  "alert-1": {
+   "dur": 1.4
+  },
+  "alert-2": {
+   "dur": 0.886
+  },
+  "alert-3": {
+   "dur": 1.228
+  },
+  "alert-4": {
+   "dur": 1.641
+  },
+  "beam-1": {
+   "dur": 0.669
+  },
+  "beam-2": {
+   "dur": 2.16
+  },
+  "capture-1": {
+   "dur": 1.775
+  },
+  "capture-2": {
+   "dur": 1.017
+  },
+  "clear-1": {
+   "dur": 2.471
+  },
+  "clear-2": {
+   "dur": 2.864
+  },
+  "clear-3": {
+   "dur": 2.094
+  },
+  "clear-4": {
+   "dur": 1.67
+  },
+  "dir-0": {
+   "dur": 0.536
+  },
+  "dir-1": {
+   "dur": 1.137
+  },
+  "dir-2": {
+   "dur": 0.726
+  },
+  "dir-3": {
+   "dur": 0.91
+  },
+  "dir-4": {
+   "dur": 0.543
+  },
+  "dir-5": {
+   "dur": 0.731
+  },
+  "dir-6": {
+   "dur": 0.52
+  },
+  "dir-7": {
+   "dur": 1.046
+  },
+  "extra-1": {
+   "dur": 2.278
+  },
+  "extra-2": {
+   "dur": 2.443
+  },
+  "freed-1": {
+   "dur": 1.061
+  },
+  "freed-2": {
+   "dur": 2.647
+  },
+  "hull-1": {
+   "dur": 1.818
+  },
+  "hull-2": {
+   "dur": 2.077
+  },
+  "in-drone-1": {
+   "dur": 1.033
+  },
+  "in-drone-2": {
+   "dur": 1.281
+  },
+  "in-drone-3": {
+   "dur": 1.096
+  },
+  "in-drone-4": {
+   "dur": 1.24
+  },
+  "in-drone-5": {
+   "dur": 1.229
+  },
+  "in-drone-6": {
+   "dur": 1.16
+  },
+  "in-lancer-1": {
+   "dur": 1.083
+  },
+  "in-lancer-2": {
+   "dur": 1.308
+  },
+  "in-lancer-3": {
+   "dur": 1.331
+  },
+  "in-lancer-4": {
+   "dur": 1.072
+  },
+  "in-lancer-5": {
+   "dur": 1.397
+  },
+  "in-lancer-6": {
+   "dur": 1.255
+  },
+  "in-warden-1": {
+   "dur": 1.158
+  },
+  "in-warden-2": {
+   "dur": 1.286
+  },
+  "in-warden-3": {
+   "dur": 1.42
+  },
+  "in-warden-4": {
+   "dur": 1.333
+  },
+  "in-warden-5": {
+   "dur": 1.156
+  },
+  "in-warden-6": {
+   "dur": 1.243
+  },
+  "launch-1": {
+   "dur": 2.066
+  },
+  "launch-2": {
+   "dur": 3.334
+  },
+  "launch-3": {
+   "dur": 1.05
+  },
+  "lock-1": {
+   "dur": 1.054
+  },
+  "lock-2": {
+   "dur": 1.588
+  },
+  "lock-3": {
+   "dur": 0.795
+  },
+  "lock-4": {
+   "dur": 1.116
+  },
+  "lost-1": {
+   "dur": 0.907
+  },
+  "lost-2": {
+   "dur": 2.416
+  },
+  "lost-all-1": {
+   "dur": 0.547
+  },
+  "lost-all-2": {
+   "dur": 1.288
+  },
+  "lost-all-3": {
+   "dur": 2.168
+  },
+  "lost-cap-1": {
+   "dur": 1.122
+  },
+  "lost-cap-2": {
+   "dur": 2.715
+  },
+  "raider-1": {
+   "dur": 1.4
+  },
+  "raider-2": {
+   "dur": 3.009
+  },
+  "rescue-1": {
+   "dur": 1.711
+  },
+  "rescue-2": {
+   "dur": 1.761
+  },
+  "respawn-1": {
+   "dur": 1.459
+  },
+  "respawn-2": {
+   "dur": 2.12
+  },
+  "scan-1": {
+   "dur": 2.484
+  },
+  "scan-2": {
+   "dur": 2.432
+  },
+  "scan-3": {
+   "dur": 2.1
+  },
+  "shields-1": {
+   "dur": 1.047
+  },
+  "shields-2": {
+   "dur": 1.111
+  },
+  "shields-3": {
+   "dur": 0.838
+  },
+  "shields-4": {
+   "dur": 1.223
+  },
+  "storm-1": {
+   "dur": 1.505
+  },
+  "storm-2": {
+   "dur": 3.254
+  },
+  "storm-3": {
+   "dur": 3.019
+  },
+  "stormend-1": {
+   "dur": 1.473
+  },
+  "stormend-2": {
+   "dur": 1.898
+  },
+  "stormend-3": {
+   "dur": 1.188
+  },
+  "stormend-4": {
+   "dur": 0.847
+  },
+  "warden-1": {
+   "dur": 1.052
+  },
+  "warden-2": {
+   "dur": 3.498
+  },
+  "wardenkill-1": {
+   "dur": 1.945
+  },
+  "wardenkill-2": {
+   "dur": 1.266
+  },
+  "wardenkill-3": {
+   "dur": 2.339
+  },
+  "wave-1": {
+   "dur": 0.613
+  },
+  "wave-10": {
+   "dur": 0.622
+  },
+  "wave-11": {
+   "dur": 0.666
+  },
+  "wave-12": {
+   "dur": 0.686
+  },
+  "wave-2": {
+   "dur": 0.535
+  },
+  "wave-3": {
+   "dur": 0.696
+  },
+  "wave-4": {
+   "dur": 0.604
+  },
+  "wave-5": {
+   "dur": 0.782
+  },
+  "wave-6": {
+   "dur": 0.798
+  },
+  "wave-7": {
+   "dur": 0.629
+  },
+  "wave-8": {
+   "dur": 0.723
+  },
+  "wave-9": {
+   "dur": 0.645
+  },
+  "wave-n": {
+   "dur": 0.593
+  },
+  "wingdown-1": {
+   "dur": 0.972
+  },
+  "wingdown-2": {
+   "dur": 2.076
+  }
+ },
+ "format": "mp3 48kbps mono 22050Hz, transmitter-processed; link simulated at runtime",
+ "quality": "weak",
+ "voice": "piper en_GB-cori-medium (public domain, trained from scratch)"
+}

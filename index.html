@@ -352,6 +352,7 @@ const sfx = (() => {
           big: comp(-11, 2.4, 0.006, 0.34, 1.05), // explosions, rocks, jump flashes
           amb: plain(0.9),                        // engine, saucer hum, fly-bys, tractor beam
           ui: plain(1),                           // lock tones, radio, jingles, alarm
+          vox: plain(1.1),                        // Halcyon control, slightly forward of the rest
           mus: plain(1),                          // music, which runs its own ducking
         };
         const verb = ctx.createConvolver();
@@ -431,7 +432,7 @@ const sfx = (() => {
     toggle() { muted = !muted; return muted; },
     isMuted: () => muted,
     // Music builds its own stems but shares this graph, so there is still one compressor, reverb and master.
-    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf, mus: BUS.mus } : null),
+    bus: () => (ctx ? { ctx, master, verbIn, noise: noiseBuf, mus: BUS.mus, vox: BUS.vox } : null),
     engine(level, boost, on) {
       if (!eng) return;
       const t = ctx.currentTime, run = on && !muted;
@@ -685,6 +686,342 @@ const music = (() => {
   };
 })();
 
+// ---------------------------------------------------------------- radio: plays the voice pack over a simulated link
+// The clips carry the equipment's character only -- overdrive, band-limiting, the comb of a
+// signal that arrived by more than one path. The *link* is simulated here, once per
+// transmission, because a line is often several clips ("Three Lancers inbound." + "Off your
+// port bow.") and a squelch burst between sentences would give the game away.
+//
+// Doing it live also means the degradation is different every time a line is heard, and can
+// answer to the game: the further you are from the Halcyon, the weaker the signal, so static
+// becomes information rather than decoration.
+const radio = (() => {
+  const BASE = 'assets/vox/';
+  const LEAD = 0.05, PAUSE = 0.19, TAIL = 0.26;   // key-up, sentence gap, squelch tail
+  let B = null, dest = null, manifest = null, fetching = false, openingDone = false;
+  const bytes = new Map();      // id -> ArrayBuffer. Fetching needs no AudioContext, so this
+  const buffers = new Map();    // id -> AudioBuffer. Decoding does, so it waits for unlock.
+  let active = null;
+  let signal = 1;          // 1 = right on top of the carrier, 0 = far out
+
+  async function fetchOne(id) {
+    const r = await fetch(BASE + id + '.mp3');
+    if (!r.ok) throw new Error(`${id}: HTTP ${r.status}`);
+    bytes.set(id, await r.arrayBuffer());
+  }
+  async function decodeOne(id) {
+    const b = bytes.get(id);
+    if (!b || buffers.has(id)) return;
+    // decodeAudioData detaches the buffer, so hand it a copy and keep the bytes for a retry.
+    buffers.set(id, await B.ctx.decodeAudioData(b.slice(0)));
+  }
+
+  // What Halcyon says in the first half-minute, in the order it says it. These load before
+  // anything else: the launch callout fires the instant the player presses Launch, and a pack
+  // that is still downloading would hand that line -- the first one in the game -- to speech
+  // synthesis instead.
+  const FIRST = [
+    'launch-1', 'launch-2', 'launch-3',
+    'wave-1', 'scan-1', 'scan-3',
+    'alert-1', 'alert-2', 'alert-3', 'alert-4',
+    'dir-0', 'dir-1', 'dir-2', 'dir-3', 'dir-4', 'dir-5', 'dir-6', 'dir-7',
+    'in-drone-1', 'in-drone-2', 'in-drone-3', 'in-drone-4',
+  ];
+
+  // Runs at page load, alongside the ship models and textures. No user gesture is needed to
+  // fetch, so by the time anyone touches a control the bytes are already here and only the
+  // decode is left -- which is what keeps the launch callout off speech synthesis.
+  async function prefetch() {
+    if (fetching) return;
+    fetching = true;
+    try {
+      manifest = await (await fetch(BASE + 'manifest.json')).json();
+      const ids = Object.keys(manifest.clips);
+      const opening = FIRST.filter((id) => ids.includes(id));
+      await Promise.all(opening.map((id) => fetchOne(id).catch(() => {})));
+      await Promise.all(ids.filter((id) => !bytes.has(id)).map((id) => fetchOne(id).catch(() => {})));
+    } catch (err) {
+      console.warn('Voice pack unavailable; Halcyon will use speech synthesis.', err);
+      manifest = null;
+    }
+  }
+
+  async function decodeAll() {
+    if (!manifest || !B) return;
+    const opening = FIRST.filter((id) => bytes.has(id));
+    await Promise.all(opening.map((id) => decodeOne(id).catch(() => {})));
+    openingDone = true;
+    await Promise.all([...bytes.keys()].map((id) => decodeOne(id).catch(() => {})));
+  }
+
+  // The link, as a gain curve: two slow fades beating against each other, with dropouts cut in.
+  // Mirrors radio.py's channel_envelope so the offline previews and the game agree.
+  function linkCurve(seconds) {
+    const n = Math.max(8, Math.ceil(seconds * 200));          // 5 ms resolution is ample
+    const c = new Float32Array(n);
+    const depth = 0.07 + (1 - signal) * 0.22;
+    const f1 = 0.22 + Math.random() * 0.33, f2 = 0.8 + Math.random() * 1.1;
+    const p1 = Math.random() * 6.283, p2 = Math.random() * 6.283;
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * seconds;
+      c[i] = (1 - depth + depth * Math.cos(2 * Math.PI * f1 * t + p1)) *
+             (1 - depth * 0.55 + depth * 0.55 * Math.cos(2 * Math.PI * f2 * t + p2));
+    }
+    // Dropouts: the carrier loses lock for a few tens of milliseconds. Ramped, not cut --
+    // an instant edge reads as an edit rather than a signal loss.
+    const rate = 0.35 + (1 - signal) * 1.6;
+    for (let k = Math.round(rate * seconds * (0.5 + Math.random())); k > 0; k--) {
+      const dur = Math.round((0.02 + Math.random() * 0.07) * 200);
+      const at = Math.floor(Math.random() * Math.max(1, n - dur));
+      const low = 0.03 + Math.random() * 0.2;
+      const ramp = 3;                                          // ~15 ms in and out of the gap
+      for (let i = 0; i < dur; i++) {
+        const edge = Math.min(i, dur - 1 - i);
+        c[at + i] *= edge >= ramp ? low : low + (1 - low) * (1 - edge / ramp);
+      }
+    }
+    return c;
+  }
+
+  function stop() {
+    if (!active) return;
+    for (const s of active.srcs) { try { s.stop(); } catch { /* already done */ } }
+    try { active.gain.gain.cancelScheduledValues(B.ctx.currentTime); } catch { /* fine */ }
+    active.gain.gain.value = 0;
+    active.bed.gain.value = 0;
+    active = null;
+  }
+
+  return {
+    prefetch,
+    ready: () => !!(B && manifest),
+    // True once the opening lines can play, or if there is no pack to wait for at all.
+    openingReady: () => openingDone || !manifest,
+    // Distance to the carrier drives the link, so a long way out sounds like a long way out.
+    setSignal(v) { signal = clamp(v, 0, 1); },
+    unlock() {
+      if (B) return;
+      B = sfx.bus();
+      if (!B) return;
+      dest = B.vox;
+      decodeAll();
+    },
+    stop,
+    // Returns false when it cannot play, so the caller can fall back to speech synthesis.
+    play(ids, urgent) {
+      if (!B || !manifest) return false;
+      const clips = ids.map((id) => buffers.get(id));
+      if (clips.some((b) => !b)) return false;
+      if (active) {
+        if (!urgent) return false;   // busy: let the current transmission finish
+        stop();
+      }
+      const ctx = B.ctx;
+      const t0 = ctx.currentTime + 0.04;
+      const open = t0 + LEAD;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.connect(dest);
+      const srcs = [];
+      let t = open;
+      for (const b of clips) {
+        const src = ctx.createBufferSource();
+        src.buffer = b;
+        src.connect(gain);
+        src.start(t);
+        srcs.push(src);
+        t += b.duration + PAUSE;
+      }
+      const close = t - PAUSE;
+      gain.gain.setValueCurveAtTime(linkCurve(close - open), open, close - open);
+
+      // Receiver hiss: independent of the signal, so the voice fades *into* it. Scaling the two
+      // together is the obvious approach and it sounds wrong -- the hiss ducks whenever the
+      // signal does, which never happens on a real radio.
+      const bed = ctx.createGain();
+      bed.gain.value = 0;
+      bed.connect(dest);
+      const ns = ctx.createBufferSource();
+      ns.buffer = B.noise;
+      ns.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 420;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4600;
+      ns.connect(hp); hp.connect(lp); lp.connect(bed);
+      const floor = 0.012 + (1 - signal) * 0.05;
+      bed.gain.setValueAtTime(0, t0);
+      bed.gain.linearRampToValueAtTime(floor, open);                       // squelch opens
+      bed.gain.setValueAtTime(floor, close);
+      bed.gain.linearRampToValueAtTime(floor * 3.4, close + 0.03);         // burst as it drops
+      bed.gain.exponentialRampToValueAtTime(0.0001, close + TAIL);         // then gate shut
+      ns.start(t0, Math.random() * 1.5);
+      ns.stop(close + TAIL + 0.05);
+
+      // PTT thump at key-down: a real transmitter hits the receiver as the carrier appears.
+      const ck = ctx.createBufferSource();
+      ck.buffer = B.noise;
+      const ckg = ctx.createGain();
+      const ckf = ctx.createBiquadFilter(); ckf.type = 'highpass'; ckf.frequency.value = 700;
+      ck.connect(ckf); ckf.connect(ckg); ckg.connect(dest);
+      ckg.gain.setValueAtTime(0.22, open - 0.006);
+      ckg.gain.exponentialRampToValueAtTime(0.0001, open + 0.01);
+      ck.start(open - 0.006, Math.random());
+      ck.stop(open + 0.02);
+
+      active = { srcs, gain, bed };
+      const mine = active;
+      setTimeout(() => { if (active === mine) active = null; },
+                 (close + TAIL - ctx.currentTime) * 1000 + 60);
+      return true;
+    },
+  };
+})();
+
+// Bring the whole audio stack up on the first real input. The voice pack has to start
+// loading here rather than at launch: it arrives asynchronously, and the launch callout is the
+// very first thing the game says.
+function audioUnlock() {
+  sfx.unlock();
+  radio.unlock();
+}
+
+// ---------------------------------------------------------------- the voice pack
+// Every line Halcyon control can speak, as id -> [text, mood]. This table is the single source
+// of truth: the offline renderer parses it straight out of this file to decide what to record,
+// and the runtime uses the same text for the speech-synthesis fallback when the clips are
+// missing. Keeping both off one table is what stops the pack and the game drifting apart.
+//
+// Each entry is a COMPLETE sentence, never a fragment. Lines are assembled by playing several
+// clips in sequence with a pause between them, and a join only sounds natural where speech
+// would stop anyway -- joining mid-sentence (around a spoken bearing, say) is audible.
+const VOX = {
+  'launch-1': ['Halcyon control to Gold Leader.', 'calm'],
+  'launch-2': ['You are clear of the deck. Swarm contacts expected shortly.', 'brisk'],
+  'launch-3': ['Good hunting out there.', 'warm'],
+
+  'alert-1': ['Heads up, Gold Leader!', 'urgent'],
+  'alert-2': ['New contacts!', 'urgent'],
+  'alert-3': ['Contact, contact!', 'urgent'],
+  'alert-4': ['Gold Leader, look sharp.', 'urgent'],
+
+  // "N Ships inbound." -- one clip per count and type, so the count is never spliced in.
+  'in-drone-1': ['One drone inbound.', 'brisk'],
+  'in-drone-2': ['Two Drones inbound.', 'brisk'],
+  'in-drone-3': ['Three Drones inbound.', 'brisk'],
+  'in-drone-4': ['Four Drones inbound.', 'brisk'],
+  'in-drone-5': ['Five Drones inbound.', 'brisk'],
+  'in-drone-6': ['Six Drones inbound.', 'brisk'],
+  'in-lancer-1': ['One lancer inbound.', 'brisk'],
+  'in-lancer-2': ['Two Lancers inbound.', 'brisk'],
+  'in-lancer-3': ['Three Lancers inbound.', 'brisk'],
+  'in-lancer-4': ['Four Lancers inbound.', 'brisk'],
+  'in-lancer-5': ['Five Lancers inbound.', 'brisk'],
+  'in-lancer-6': ['Six Lancers inbound.', 'brisk'],
+  'in-warden-1': ['One warden inbound.', 'brisk'],
+  'in-warden-2': ['Two Wardens inbound.', 'brisk'],
+  'in-warden-3': ['Three Wardens inbound.', 'brisk'],
+  'in-warden-4': ['Four Wardens inbound.', 'brisk'],
+  'in-warden-5': ['Five Wardens inbound.', 'brisk'],
+  'in-warden-6': ['Six Wardens inbound.', 'brisk'],
+
+  // Direction replaces the spoken three-digit bearing: a pilot can act on "off your port bow"
+  // instantly, where 047 has to be converted first. The exact number stays in the comms log.
+  'dir-0': ['Dead ahead.', 'brisk'],
+  'dir-1': ['Off your starboard bow.', 'brisk'],
+  'dir-2': ['To starboard.', 'brisk'],
+  'dir-3': ['Starboard quarter.', 'brisk'],
+  'dir-4': ['Astern.', 'brisk'],
+  'dir-5': ['Port quarter.', 'brisk'],
+  'dir-6': ['To port.', 'brisk'],
+  'dir-7': ['Off your port bow.', 'brisk'],
+
+  'warden-1': ['Careful now...', 'grave'],
+  'warden-2': ['Wardens carry tractor beams. Do not let one get close.', 'calm'],
+
+  'raider-1': ['Raider saucer on scope!', 'urgent'],
+  'raider-2': ['It can fire in any direction, so watch your six.', 'brisk'],
+
+  'beam-1': ['Tractor beam!', 'alarm'],
+  'beam-2': ['Hit your afterburner, break free!', 'urgent'],
+
+  'wardenkill-1': ['Warden down! Nice work!', 'warm'],
+  'wardenkill-2': ['Scratch one Warden!', 'warm'],
+  'wardenkill-3': ['That Warden is history. Well done!', 'warm'],
+
+  'rescue-1': ['Yes! Pilot recovered!', 'warm'],
+  'rescue-2': ['Gold Two is forming up on your wing.', 'brisk'],
+
+  'wingdown-1': ['Gold Two is hit!', 'urgent'],
+  'wingdown-2': ['Pilot ejected. We will pick them up.', 'calm'],
+
+  'lock-1': ['Lock confirmed!', 'brisk'],
+  'lock-2': ['You have lock. Take the shot!', 'brisk'],
+  'lock-3': ['Missile lock!', 'brisk'],
+  'lock-4': ['Locked on. Fire!', 'brisk'],
+
+  'shields-1': ['Your shields are down!', 'urgent'],
+  'shields-2': ['Evade, evade!', 'alarm'],
+  'shields-3': ['Get out of there!', 'alarm'],
+  'shields-4': ['Break left, break left!', 'alarm'],
+
+  'hull-1': ['Gold Leader, your hull is breaking up!', 'alarm'],
+  'hull-2': ['Get clear and let your shields recharge.', 'urgent'],
+
+  'lost-all-1': ['No...', 'grave'],
+  'lost-all-2': ['All fighters lost.', 'grave'],
+  'lost-all-3': ['Squadron, return to base.', 'grave'],
+  'lost-cap-1': ['They have your fighter.', 'grave'],
+  'lost-cap-2': ['Shoot down that Warden and we get the pilot back.', 'calm'],
+  'lost-1': ['Gold Leader is down!', 'alarm'],
+  'lost-2': ['Stand by. Launching a replacement.', 'calm'],
+
+  'capture-1': ['Gold Leader, you are caught in the beam!', 'alarm'],
+  'capture-2': ['We are losing you!', 'alarm'],
+
+  'freed-1': ['Warden destroyed!', 'urgent'],
+  'freed-2': ['You are free, Gold Leader. Good to have you back.', 'warm'],
+
+  'extra-1': ['Good news, Gold Leader.', 'warm'],
+  'extra-2': ['Command has authorised another fighter for you.', 'warm'],
+
+  'respawn-1': ['Replacement fighter away.', 'brisk'],
+  'respawn-2': ['Welcome back to the fight, Gold Leader.', 'warm'],
+
+  'wave-1': ['Wave one.', 'brisk'],
+  'wave-2': ['Wave two.', 'brisk'],
+  'wave-3': ['Wave three.', 'brisk'],
+  'wave-4': ['Wave four.', 'brisk'],
+  'wave-5': ['Wave five.', 'brisk'],
+  'wave-6': ['Wave six.', 'brisk'],
+  'wave-7': ['Wave seven.', 'brisk'],
+  'wave-8': ['Wave eight.', 'brisk'],
+  'wave-9': ['Wave nine.', 'brisk'],
+  'wave-10': ['Wave ten.', 'brisk'],
+  'wave-11': ['Wave eleven.', 'brisk'],
+  'wave-12': ['Wave twelve.', 'brisk'],
+  'wave-n': ['New wave.', 'brisk'],
+
+  'storm-1': ['Asteroid storm, dead ahead!', 'urgent'],
+  'storm-2': ['And the Swarm is hiding in the rocks. Watch yourself.', 'grave'],
+  'storm-3': ['Clear every fragment and there is a bonus in it for you.', 'warm'],
+  'scan-1': ['Swarm interceptors on long-range scan.', 'calm'],
+  'scan-2': ['Swarm strike group on long-range scan.', 'calm'],
+  'scan-3': ['All fighters, weapons free.', 'brisk'],
+
+  'clear-1': ['Sector clear! Nice shooting, Gold Leader!', 'warm'],
+  'clear-2': ['That is the last of them. Great flying!', 'warm'],
+  'clear-3': ['Board is clear. Outstanding work!', 'warm'],
+  'clear-4': ['Rearming for the next wave.', 'calm'],
+
+  'stormend-1': ['Every last fragment!', 'warm'],
+  'stormend-2': ['A perfect run, Gold Leader!', 'warm'],
+  'stormend-3': ['The storm has passed.', 'calm'],
+  'stormend-4': ['Bonus credited.', 'brisk'],
+};
+// Bearing in degrees off the nose -> one of the eight direction clips.
+const dirClip = (deg) => `dir-${Math.round((((+deg % 360) + 360) % 360) / 45) % 8}`;
+const waveClip = (n) => (n >= 1 && n <= 12 ? `wave-${n}` : 'wave-n');
+
 // ---------------------------------------------------------------- voice: spoken callouts from Halcyon control (the browser's speech synthesis)
 const voice = (() => {
   const synth = window.speechSynthesis;
@@ -720,27 +1057,37 @@ const voice = (() => {
     warm:   { rate: 0.97, pitch: 1.16, volume: 0.95 },
     grave:  { rate: 0.88, pitch: 0.94, volume: 0.9 },
   };
-  const DIGITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'niner'];
-  const COUNT = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
   return {
-    toggle() { enabled = !enabled; if (!enabled) { synth?.cancel(); queued = 0; } return enabled; },
-    stop() { synth?.cancel(); queued = 0; },
+    toggle() { enabled = !enabled; if (!enabled) { synth?.cancel(); queued = 0; radio.stop(); } return enabled; },
+    stop() { synth?.cancel(); queued = 0; radio.stop(); },
     get name() { return chosen ? chosen.name : 'default voice'; },
-    digits: (s) => String(s).split('').map((d) => DIGITS[+d] ?? d).join(' '),
-    count: (n) => COUNT[n] ?? String(n),
     pick: (...options) => options[Math.floor(Math.random() * options.length)],
     // A callout is a string or a list of [phrase, mood] spoken back to back, so the delivery can shift mid-line.
     // Each has a key and cooldown so repeats don't pile up; urgent callouts cut in over whatever is playing.
+    // `lines` is either a list of VOX clip ids or raw [text, mood] pairs. Ids are preferred:
+    // they can play the recorded pack and still fall back to speech synthesis on the same text.
     say(lines, { key, cooldown = 4, urgent = false, mood = urgent ? 'urgent' : 'brisk' } = {}) {
       if (!synth || !enabled || sfx.isMuted()) return;
-      const segs = typeof lines === 'string' ? [[lines, mood]] : lines;
-      const k = key || segs.map((s) => s[0]).join(' ');
+      const list = typeof lines === 'string' ? [lines] : lines;
+      let ids = null, segs;
+      if (list.every((x) => typeof x === 'string')) {
+        ids = list.filter((x) => VOX[x]);
+        // Bare strings that are not clip ids are still lines to speak, as they used to be.
+        segs = ids.length ? ids.map((id) => VOX[id]) : list.map((t) => [t, mood]);
+        if (!ids.length) ids = null;
+      } else {
+        segs = list;
+      }
+      const k = key || (ids ? ids.join(' ') : segs.map((s) => s[0]).join(' '));
       const now = performance.now() / 1000;
       if (now - (last[k] ?? -1e9) < cooldown) return;
       last[k] = now;
       if (urgent) { synth.cancel(); queued = 0; }
       else if (queued >= 7) return;
       music.duck(1.1 + segs.reduce((n, seg) => n + seg[0].length, 0) * 0.05);
+      // The pack brings its own keying -- click, hiss, squelch -- so it does not want
+      // sfx.comm() over the top. Speech synthesis still does, since it has none of its own.
+      if (ids && radio.play(ids, urgent)) return;
       sfx.comm();
       segs.forEach(([text, m], i) => {
         const u = new SpeechSynthesisUtterance(text);
@@ -1995,7 +2342,7 @@ function addScore(n) {
     lives++;
     nextExtra += nextExtra === 20000 ? 50000 : 70000;
     comm('HALCYON', 'Replacement fighter authorised. One more ship in the hangar.', 'friend');
-    voice.say([['Good news, Gold Leader.', 'warm'], ['Command has authorised another fighter for you.', 'warm']], { key: 'extra', cooldown: 5 });
+    voice.say(['extra-1', 'extra-2'], { key: 'extra', cooldown: 5 });
     sfx.extra();
   }
 }
@@ -2094,14 +2441,16 @@ function spawnFlight(type, count) {
   const what = count === 1 ? `A lone ${SHIPS[type].tag.toLowerCase()}` : `${count} ${SHIPS[type].plural}`;
   const brg = bearing(origin);
   comm('HALCYON', `${what} jumping in, bearing ${brg}.`, 'friend');
-  const spokenWhat = count === 1 ? `One ${SHIPS[type].tag.toLowerCase()}` : `${voice.count(count)} ${SHIPS[type].plural}`;
+  // Three complete sentences: the alert, what is coming, and where from. The count and the
+  // direction each have their own clip, so nothing is ever spliced mid-sentence.
   voice.say([
-    [voice.pick('Heads up, Gold Leader!', 'New contacts!', 'Contact, contact!', 'Gold Leader, look sharp.'), 'urgent'],
-    [`${spokenWhat} inbound, bearing ${voice.digits(brg)}.`, 'brisk'],
+    voice.pick('alert-1', 'alert-2', 'alert-3', 'alert-4'),
+    `in-${type}-${clamp(count, 1, 6)}`,
+    dirClip(brg),
   ], { key: 'flight', cooldown: 2 });
   if (type === 'warden') {
     comm('HALCYON', 'Wardens carry tractor beams. Do not let one hold you.', 'warn');
-    voice.say([['Careful now...', 'grave'], ['Wardens carry tractor beams. Do not let one get close.', 'calm']], { key: 'warden', cooldown: 30 });
+    voice.say(['warden-1', 'warden-2'], { key: 'warden', cooldown: 30 });
   }
 }
 
@@ -2116,7 +2465,7 @@ function spawnRaider() {
   e.state = 'raid';
   const brg = bearing(origin);
   comm('HALCYON', `Raider saucer on scope, bearing ${brg}. It can shoot in any direction.`, 'warn');
-  voice.say([['Raider saucer on scope!', 'urgent'], [`Bearing ${voice.digits(brg)}. It can fire in any direction, so watch your six.`, 'brisk']], { key: 'raider', cooldown: 8 });
+  voice.say(['raider-1', dirClip(brg), 'raider-2'], { key: 'raider', cooldown: 8 });
 }
 
 const _ea = V(), _ef = V(), _ed = V();
@@ -2162,7 +2511,7 @@ function updateEnemy(e, dt) {
         e.state = 'beam'; e.beamT = 0; e.t = 0;
         sfx.beam();
         comm('HALCYON', `${e.name} is bringing its tractor beam to bear! Boost clear!`, 'warn');
-        voice.say([['Tractor beam!', 'alarm'], ['Hit your afterburner, break free!', 'urgent']], { key: 'beam', cooldown: 6, urgent: true });
+        voice.say(['beam-1', 'beam-2'], { key: 'beam', cooldown: 6, urgent: true });
       } else if (dist < 40 || (e.t > 10 && Math.random() < dt * 0.3)) beginBreak(e);
       break;
     }
@@ -2278,7 +2627,7 @@ function killEnemy(e, credit) {
   }
   if (e.type === 'warden') {
     comm('HALCYON', `${e.name} destroyed.`, 'friend');
-    if (!e.captive) voice.say(voice.pick('Warden down! Nice work!', 'Scratch one Warden!', 'That Warden is history. Well done!'), { key: 'wardenkill', cooldown: 4, mood: 'warm' });
+    if (!e.captive) voice.say(voice.pick('wardenkill-1', 'wardenkill-2', 'wardenkill-3'), { key: 'wardenkill', cooldown: 4 });
   }
   scene.remove(e.obj);
   disposeObj(e.obj);
@@ -2296,7 +2645,7 @@ function spawnWingman(pos) {
   obj.quaternion.copy(look.quaternion);
   wingman = { obj, heading: look.quaternion.clone(), bank: 0, speed: 40, vel: V(), turn: 1.9, hp: 40, r: 3, fireCd: 0, dead: false };
   comm('GOLD TWO', 'Thanks for the rescue, Lead. Forming up on your right wing.', 'wing');
-  voice.say([['Yes! Pilot recovered!', 'warm'], ['Gold Two is forming up on your wing.', 'brisk']], { key: 'rescue', cooldown: 2, urgent: true });
+  voice.say(['rescue-1', 'rescue-2'], { key: 'rescue', cooldown: 2, urgent: true });
   sfx.rescued();
   addScore(500);
 }
@@ -2345,7 +2694,7 @@ function damageWingman(dmg) {
   disposeObj(w.obj);
   wingman = null;
   comm('HALCYON', 'Gold Two is down. Pilot ejected; we will pick them up.', 'warn');
-  voice.say([['Gold Two is hit!', 'urgent'], ['Pilot ejected. We will pick them up.', 'calm']], { key: 'wingdown', cooldown: 2 });
+  voice.say(['wingdown-1', 'wingdown-2'], { key: 'wingdown', cooldown: 2 });
 }
 
 // ---------------------------------------------------------------- asteroids
@@ -2514,7 +2863,7 @@ function updateLock(dt) {
   player.locked = player.lockT >= 1.1;
   player.lockBeep -= dt;
   if (player.lockT > 0 && !player.locked && player.lockBeep <= 0) { sfx.lock(false); player.lockBeep = 0.24 - player.lockT * 0.14; }
-  if (player.locked && !was) { sfx.lock(true); voice.say(voice.pick('Lock confirmed!', 'You have lock. Take the shot!', 'Missile lock!', 'Locked on. Fire!'), { key: 'lock', cooldown: 3, mood: 'brisk' }); }
+  if (player.locked && !was) { sfx.lock(true); voice.say(voice.pick('lock-1', 'lock-2', 'lock-3', 'lock-4'), { key: 'lock', cooldown: 3 }); }
 }
 
 function targetNearest(filter) {
@@ -2626,7 +2975,7 @@ function damagePlayer(dmg) {
   if (player.shield > 0) {
     player.shield -= dmg;
     if (player.shield < 0) { player.hull += player.shield; player.shield = 0; }
-    if (player.shield === 0) voice.say([['Your shields are down!', 'urgent'], [voice.pick('Evade, evade!', 'Get out of there!', 'Break left, break left!'), 'alarm']], { key: 'shields', cooldown: 12 });
+    if (player.shield === 0) voice.say(['shields-1', voice.pick('shields-2', 'shields-3', 'shields-4')], { key: 'shields', cooldown: 12 });
     player.shieldFlash = 0.7;
     sfx.shield();
     shake = Math.max(shake, 0.25);
@@ -2643,7 +2992,7 @@ function damagePlayer(dmg) {
     player.alarmed = true;
     sfx.alarm();
     comm('HALCYON', 'Your hull is breaking up! Get clear and let the shields recharge.', 'warn');
-    voice.say([['Gold Leader, your hull is breaking up!', 'alarm'], ['Get clear and let your shields recharge.', 'urgent']], { key: 'hull', cooldown: 15, urgent: true });
+    voice.say(['hull-1', 'hull-2'], { key: 'hull', cooldown: 15, urgent: true });
   }
 }
 
@@ -2662,10 +3011,10 @@ function loseShip(msg) {
   rumble(600, 1);
   comm('HALCYON', msg, 'warn');
   const lostLine = lives <= 0
-    ? [['No...', 'grave'], ['All fighters lost.', 'grave'], ['Squadron, return to base.', 'grave']]
+    ? ['lost-all-1', 'lost-all-2', 'lost-all-3']
     : msg.startsWith('Fighter captured')
-      ? [['They have your fighter.', 'grave'], ['Shoot down that Warden and we get the pilot back.', 'calm']]
-      : [['Gold Leader is down!', 'alarm'], ['Stand by. Launching a replacement.', 'calm']];
+      ? ['lost-cap-1', 'lost-cap-2']
+      : ['lost-1', 'lost-2'];
   voice.say(lostLine, { key: 'lost', cooldown: 1, urgent: true });
   if (lives <= 0) { overT = 3.5; showBanner('FIGHTER LOST', 'No reserve fighters left', 3.5); }
   else { player.respawnT = 4; showBanner('FIGHTER LOST', 'Launching a replacement', 3.5); }
@@ -2680,7 +3029,7 @@ function startCapture(w) {
   player.target = null;
   sfx.captured();
   comm('HALCYON', 'Gold Leader is caught in a tractor beam!', 'warn');
-  voice.say([['Gold Leader, you are caught in the beam!', 'alarm'], ['We are losing you!', 'alarm']], { key: 'capture', cooldown: 2, urgent: true });
+  voice.say(['capture-1', 'capture-2'], { key: 'capture', cooldown: 2, urgent: true });
 }
 const _cap = V();
 function updateCapture(dt) {
@@ -2699,7 +3048,7 @@ function releaseCapture() {
   player.alive = true;
   player.inv = 1.5;
   comm('HALCYON', 'Warden destroyed. You are free, Gold Leader!', 'friend');
-  voice.say([['Warden destroyed!', 'urgent'], ['You are free, Gold Leader. Good to have you back.', 'warm']], { key: 'freed', cooldown: 2, urgent: true });
+  voice.say(['freed-1', 'freed-2'], { key: 'freed', cooldown: 2, urgent: true });
 }
 function finishCapture() {
   const w = player.capturing.w;
@@ -2737,7 +3086,7 @@ function startWave(n) {
     if (n >= 6) spawnQueue.push({ t: 30, type: 'warden', count: 1 }, { t: 46, type: 'raider' }, { t: 52, type: 'lancer', count: 4 });
     showBanner(`WAVE ${n}`, 'Asteroid storm · Swarm fighters in the rocks');
     comm('HALCYON', `Asteroid storm ahead: ${big} large bodies, and the Swarm is using it for cover. Clear every fragment for a bonus.`, 'friend');
-    voice.say([[`Wave ${n}.`, 'brisk'], ['Asteroid storm, dead ahead!', 'urgent'], ['And the Swarm is hiding in the rocks. Watch yourself.', 'grave'], ['Clear every fragment and there is a bonus in it for you.', 'warm']], { key: 'wave', cooldown: 2 });
+    voice.say([waveClip(n), 'storm-1', 'storm-2', 'storm-3'], { key: 'wave', cooldown: 2 });
   } else {
     const flights = [];
     const drones = n === 1 ? 4 : 8 + 4 * Math.floor((n - 1) / 3);
@@ -2755,7 +3104,7 @@ function startWave(n) {
       }
     }
     showBanner(`WAVE ${n}`, n === 1 ? 'Swarm interceptors inbound' : 'Swarm strike group inbound');
-    voice.say([[`Wave ${n}.`, 'brisk'], [`Swarm ${n === 1 ? 'interceptors' : 'strike group'} on long-range scan.`, 'calm'], ['All fighters, weapons free.', 'brisk']], { key: 'wave', cooldown: 2 });
+    voice.say([waveClip(n), n === 1 ? 'scan-1' : 'scan-2', 'scan-3'], { key: 'wave', cooldown: 2 });
   }
   sfx.wave();
 }
@@ -2766,7 +3115,7 @@ function waveComplete() {
   if (player.alive) { player.hull = Math.min(100, player.hull + 40); player.shield = 100; player.alarmed = false; }
   showBanner(`WAVE ${wave} CLEAR`, 'Rearming · missiles replenished · hull patched');
   comm('HALCYON', 'Sector clear. Rearm drone en route; hold position for the next wave.', 'friend');
-  voice.say([[voice.pick('Sector clear! Nice shooting, Gold Leader!', 'That is the last of them. Great flying!', 'Board is clear. Outstanding work!'), 'warm'], ['Rearming for the next wave.', 'calm']], { key: 'clear', cooldown: 3 });
+  voice.say([voice.pick('clear-1', 'clear-2', 'clear-3'), 'clear-4'], { key: 'clear', cooldown: 3 });
 }
 function endStorm() {
   const perfect = storm.destroyed >= storm.total;
@@ -2774,7 +3123,7 @@ function endStorm() {
   for (const k of rocks) if (k.storm && !k.dead) { k.dead = true; scene.remove(k.obj); }
   addScore(bonus);
   comm('HALCYON', perfect ? `Every fragment accounted for. Perfect! Bonus ${bonus}.` : `Storm cleared ${storm.destroyed} of ${storm.total} fragments. Bonus ${bonus}.`, 'friend');
-  voice.say(perfect ? [['Every last fragment!', 'warm'], ['A perfect run, Gold Leader!', 'warm']] : [['The storm has passed.', 'calm'], ['Bonus credited.', 'brisk']], { key: 'storm', cooldown: 3 });
+  voice.say(perfect ? ['stormend-1', 'stormend-2'] : ['stormend-3', 'stormend-4'], { key: 'storm', cooldown: 3 });
   storm = null;
 }
 
@@ -2791,7 +3140,7 @@ function updateFlow(dt) {
       if (player.respawnT <= 0) {
         resetPlayer();
         comm('HALCYON', 'Replacement fighter away. Back in the fight, Gold Leader.', 'friend');
-        voice.say([['Replacement fighter away.', 'brisk'], ['Welcome back to the fight, Gold Leader.', 'warm']], { key: 'respawn', cooldown: 2 });
+        voice.say(['respawn-1', 'respawn-2'], { key: 'respawn', cooldown: 2 });
       }
     }
   }
@@ -2819,7 +3168,7 @@ function clearWorld() {
   spawnQueue = []; storm = null; comms = [];
 }
 function startGame() {
-  sfx.unlock();
+  audioUnlock();
   clearWorld();
   score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
   resetPlayer();
@@ -2833,7 +3182,9 @@ function startGame() {
   cockpit.visible = true;
   showBanner('LAUNCH', 'Gold Leader clear of the Halcyon', 2.6);
   comm('HALCYON', 'Gold Leader, you are clear of the deck. Swarm contacts expected shortly.', 'friend');
-  voice.say([['Halcyon control to Gold Leader.', 'calm'], ['You are clear of the deck. Swarm contacts expected shortly.', 'brisk'], ['Good hunting out there.', 'warm']], { key: 'launch', cooldown: 1, urgent: true });
+  // A beat before control answers: a radio call is never instantaneous with a button press,
+  // and it lets the opening clips finish decoding so this line comes off the pack.
+  setTimeout(() => voice.say(['launch-1', 'launch-2', 'launch-3'], { key: 'launch', cooldown: 1, urgent: true }), 450);
 }
 function gameOver() {
   state = 'over';
@@ -2860,7 +3211,7 @@ function togglePause() {
   if (paused) { document.exitPointerLock?.(); voice.stop(); }
 }
 function onStart() {
-  sfx.unlock();
+  audioUnlock();
   if (state === 'title') { if (assetsSettled) startGame(); }
   else if (state === 'over') { if (performance.now() - overShown > 900) startGame(); }
   else togglePause();
@@ -2970,7 +3321,7 @@ function rumble(ms, s) {
 
 window.addEventListener('keydown', (e) => {
   if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Backspace'].includes(e.code)) e.preventDefault();
-  sfx.unlock();
+  audioUnlock();
   keys.add(e.code);
   if (e.repeat) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) mouse.active = pointerLocked;
@@ -2994,7 +3345,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && sta
 
 glCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 glCanvas.addEventListener('mousedown', (e) => {
-  sfx.unlock();
+  audioUnlock();
   if (state !== 'play' || paused) return;
   if (!pointerLocked && !isTouch) {
     try { glCanvas.requestPointerLock?.()?.catch?.(() => { /* not allowed here */ }); } catch { /* not allowed here */ }
@@ -3022,7 +3373,7 @@ window.addEventListener('mousemove', (e) => {
 
 glCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'touch') return;
-  sfx.unlock();
+  audioUnlock();
   if (state !== 'play') return;
   // Anywhere on the open view is the flight stick; weapons, throttle and roll have their own buttons.
   if (touchStick.id === null) {
@@ -3046,7 +3397,7 @@ const touchUI = { fire: false, boost: false, rollL: false, rollR: false };
 const touchEl = $('touch');
 const isAttacker = (t) => t.prey === PLAYER && (t.state === 'attack' || t.state === 'beam' || t.state === 'raid');
 function touchAction(act) {
-  sfx.unlock();
+  audioUnlock();
   if (act === 'pause') { togglePause(); return; }
   if (act === 'view') { toggleView(); return; }
   if (state !== 'play' || paused) return;
@@ -3059,7 +3410,7 @@ for (const b of touchEl.querySelectorAll('[data-hold]')) {
   const off = () => { touchUI[k] = false; b.classList.remove('on'); };
   b.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    sfx.unlock();
+    audioUnlock();
     touchUI[k] = true;
     b.classList.add('on');
     try { b.setPointerCapture(e.pointerId); } catch { /* not supported */ }
@@ -3594,10 +3945,14 @@ function update(dt) {
     state, paused, wave, near, enemies: enemies.length,
     hull: player.hull, alive: player.alive, inBeam: player.inBeam, capturing: !!player.capturing,
   });
+  // Range to the Halcyon sets the link quality, so drifting far out audibly costs you the
+  // clarity of your own controller.
+  if (state === 'play') radio.setSignal(1 - clamp((player.rig.position.distanceTo(CARRIER_POS) - 350) / 1400, 0, 1));
 }
 
 const frameClock = new THREE.Clock();
 loadAssets();
+radio.prefetch();
 setTimeout(settleAssets, 10000);
 setupTitle();
 function frame() {
