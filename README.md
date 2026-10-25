@@ -150,6 +150,25 @@ three sizes separate by grain band, not just by the thud.
 
 Sampled clips bypass the shared reverb, since each already carries its own tail.
 
+## The thruster
+
+Noise is the signal; resonance is the character. Four band-limited noise layers (rumble, body,
+shear hiss, plus three fixed high-Q chamber resonances) through a saturation stage that is
+driven harder under reheat.
+
+It replaced two detuned sawtooth oscillators and a sine sub. That design measured **0.86
+periodicity** in the 30–120 Hz band — a steady pitch down there is what made it read as a
+synthesiser rather than thrust. The rewrite measures 0.05. The 40 / 40.7 Hz detune was also
+producing a regular beat, so the "turbulence" was a metronome.
+
+Each layer is modulated by its own stream of heavily smoothed **noise**, played at a different
+rate. A sine modulator gives a wobble the ear locks onto within a second; combustion is chaotic,
+so the modulator has to be noise too. Afterburner adds pre-baked reheat crackle and an ignition
+thump, so engaging it is an event rather than a fader — and it shifts the spectral balance
+(+6.7 points of hiss) instead of only getting louder.
+
+`tools/engine_proto.py` renders both designs over the same throttle timeline for A/B.
+
 ## Audio routing
 
 Everything shares one `AudioContext`. Each category has its own submix bus with

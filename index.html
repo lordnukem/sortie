@@ -311,7 +311,21 @@ resize();
 const sfx = (() => {
   let ctx = null, master = null, verbIn = null, muted = false, noiseBuf = null, eng = null, drive = null;
   let BUS = null;
-  const osc0 = (type, f) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.start(); return o; };
+  // The thruster, as four noise layers plus three fixed resonances. Each number is
+  // [base, per throttle, per afterburner]. See tools/engine_proto.py for the measurements that
+  // drove this shape: the old two-sawtooth design read 0.86 periodicity in the 30-120 Hz band,
+  // and a steady pitch down there is what made it sound like a synthesiser rather than thrust.
+  const THRUST = [
+    { k: 'rumble', type: 'lowpass',  q: 0.9, rate: 0.22, turb: 0.45,
+      f: [70, 55, 30],      g: [0.055, 0.085, 0.05] },
+    { k: 'body',   type: 'bandpass', q: 1.4, rate: 0.60, turb: 0.38,
+      f: [190, 420, 260],   g: [0.05, 0.1, 0.07] },
+    { k: 'hiss',   type: 'highpass', q: 0.7, rate: 1.00, turb: 0.30,
+      f: [2400, 2600, 3200], g: [0.006, 0.022, 0.055] },
+  ];
+  // Chamber resonances: a cavity ringing, which is a different thing from an oscillator playing
+  // a note. They shift a little with throttle, as a real nozzle's would under pressure.
+  const CHAMBER = [[236, 7, 0.03], [529, 9, 0.02], [1187, 11, 0.012]];
   function impulse(sec, decay) {
     const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
@@ -367,16 +381,72 @@ const sfx = (() => {
         for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
         drive = new Float32Array(1024);
         for (let i = 0; i < 1024; i++) drive[i] = Math.tanh(((i / 1023) * 2 - 1) * 3);
-        // Engine: two detuned saws and a sub through a resonant lowpass, plus a noise roar that opens under afterburner.
-        const o1 = osc0('sawtooth', 40), o2 = osc0('sawtooth', 40.7), sub = osc0('sine', 20);
-        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 2;
-        const g = ctx.createGain(); g.gain.value = 0;
-        o1.connect(f); o2.connect(f); sub.connect(g); f.connect(g); g.connect(BUS.amb);
-        const ns = ctx.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
-        const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 500; nf.Q.value = 0.8;
-        const ng = ctx.createGain(); ng.gain.value = 0;
-        ns.connect(nf); nf.connect(ng); ng.connect(BUS.amb); ns.start();
-        eng = { o1, o2, sub, f, g, nf, ng };
+        // Turbulence: heavily smoothed noise, looped and played at a different rate per layer.
+        // Modulating with a sine gives a wobble the ear locks onto within a second; combustion
+        // is chaotic, so the modulator has to be noise. One buffer at three rates decorrelates
+        // the layers without three buffers.
+        const turbBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 8), ctx.sampleRate);
+        {
+          const d = turbBuf.getChannelData(0);
+          const k = 1 - Math.exp((-2 * Math.PI * 8) / ctx.sampleRate);   // about 8 Hz
+          let v = 0, peak = 1e-9;
+          for (let i = 0; i < d.length; i++) {
+            v += k * (Math.random() * 2 - 1 - v);
+            d[i] = v;
+            if (Math.abs(v) > peak) peak = Math.abs(v);
+          }
+          for (let i = 0; i < d.length; i++) d[i] /= peak;
+        }
+        // Reheat crackle, pre-baked into a loop and gated by the afterburner. Scheduling dozens
+        // of one-shot nodes a second would cost more and sound no different under the roar.
+        const crkBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 3), ctx.sampleRate);
+        {
+          const d = crkBuf.getChannelData(0);
+          for (let k = 0; k < 280; k++) {
+            const at = Math.floor(Math.random() * (d.length - 700));
+            const len = 90 + Math.floor(Math.random() * 450);
+            const amp = 0.25 + Math.random() * 0.75;
+            for (let i = 0; i < len; i++) d[at + i] += (Math.random() * 2 - 1) * Math.exp((-7 * i) / len) * amp;
+          }
+        }
+        const loop = (buf, rate) => {
+          const s = ctx.createBufferSource();
+          s.buffer = buf;
+          s.loop = true;
+          s.playbackRate.value = rate;
+          s.start(0, Math.random() * buf.duration);   // random phase, so layers do not line up
+          return s;
+        };
+        // Saturation that tightens under reheat: the flame is being pushed harder. Driving the
+        // existing tanh curve harder is what changes the timbre, not just the level.
+        const pre = ctx.createGain(); pre.gain.value = 1;
+        const shaper = ctx.createWaveShaper(); shaper.curve = drive;
+        const post = ctx.createGain(); post.gain.value = 0.9;
+        pre.connect(shaper); shaper.connect(post); post.connect(BUS.amb);
+        eng = { pre, layers: {}, chamber: [], lit: false };
+        for (const spec of THRUST) {
+          const flt = ctx.createBiquadFilter();
+          flt.type = spec.type; flt.frequency.value = spec.f[0]; flt.Q.value = spec.q;
+          const g = ctx.createGain(); g.gain.value = 0;
+          loop(noiseBuf, 1).connect(flt);
+          flt.connect(g); g.connect(pre);
+          // Turbulence rides the layer's gain as an additive modulation; its depth is set each
+          // frame so the wobble scales with how hard the engine is working.
+          const tg = ctx.createGain(); tg.gain.value = 0;
+          loop(turbBuf, spec.rate).connect(tg); tg.connect(g.gain);
+          eng.layers[spec.k] = { flt, g, tg, spec };
+        }
+        const chamberSrc = loop(noiseBuf, 1);
+        for (const [f0, q, gain] of CHAMBER) {
+          const flt = ctx.createBiquadFilter();
+          flt.type = 'bandpass'; flt.frequency.value = f0; flt.Q.value = q;
+          const g = ctx.createGain(); g.gain.value = 0;
+          chamberSrc.connect(flt); flt.connect(g); g.connect(pre);
+          eng.chamber.push({ flt, g, f0, gain });
+        }
+        const crk = ctx.createGain(); crk.gain.value = 0;
+        loop(crkBuf, 1).connect(crk); crk.connect(pre);
+        eng.crk = crk;
       }
       if (ctx.state === 'suspended') ctx.resume();
     } catch { /* audio unavailable */ }
@@ -436,12 +506,27 @@ const sfx = (() => {
     engine(level, boost, on) {
       if (!eng) return;
       const t = ctx.currentTime, run = on && !muted;
-      eng.g.gain.setTargetAtTime(run ? 0.04 + level * 0.035 + (boost ? 0.03 : 0) : 0, t, 0.15);
-      for (const o of [eng.o1, eng.o2]) o.frequency.setTargetAtTime(36 + level * 34 + (boost ? 26 : 0), t, 0.25);
-      eng.sub.frequency.setTargetAtTime(18 + level * 17, t, 0.25);
-      eng.f.frequency.setTargetAtTime(200 + level * 520 + (boost ? 900 : 0), t, 0.2);
-      eng.ng.gain.setTargetAtTime(run ? 0.01 + level * 0.02 + (boost ? 0.07 : 0) : 0, t, 0.2);
-      eng.nf.frequency.setTargetAtTime(400 + level * 600 + (boost ? 1400 : 0), t, 0.25);
+      const L = run ? clamp(level, 0, 1) : 0, B = run && boost ? 1 : 0;
+      // Ignition: light the reheat with a thump, so engaging it is an event and not a fader.
+      if (B && !eng.lit) {
+        hiss({ d: 0.34, v: 0.17, f: 240, f2: 70, type: 'lowpass', bus: 'amb' });
+        tone({ f: 72, f2: 38, d: 0.3, type: 'sine', v: 0.1, bus: 'amb' });
+      }
+      eng.lit = !!B;
+      for (const key in eng.layers) {
+        const { flt, g, tg, spec } = eng.layers[key];
+        const lvl = run ? spec.g[0] + L * spec.g[1] + B * spec.g[2] : 0;
+        flt.frequency.setTargetAtTime(spec.f[0] + L * spec.f[1] + B * spec.f[2], t, 0.25);
+        g.gain.setTargetAtTime(lvl, t, 0.15);
+        // Deeper turbulence under reheat: the flame is less stable, not merely louder.
+        tg.gain.setTargetAtTime(lvl * spec.turb * (1 + B * 0.5), t, 0.2);
+      }
+      for (const c of eng.chamber) {
+        c.flt.frequency.setTargetAtTime(c.f0 * (1 + L * 0.14 + B * 0.08), t, 0.25);
+        c.g.gain.setTargetAtTime(run ? c.gain * (0.35 + 0.65 * L) : 0, t, 0.2);
+      }
+      eng.crk.gain.setTargetAtTime(B * L * 0.5, t, 0.12);
+      eng.pre.gain.setTargetAtTime(run ? 1 + L * 0.6 + B * 1.6 : 1, t, 0.2);
     },
     // Cannon: a bright zap, a body tone, a transient click and a low thump, panned to the wing that fired.
     laser(pan = 0) {
