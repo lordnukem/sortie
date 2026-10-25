@@ -31,6 +31,55 @@ on the Pages URL but not over plain HTTP.
 | Sound | `M` all · `V` voice callouts | — | — |
 | Pause | `P` or `Esc` | Start | PAUSE |
 
+## Stages
+
+Wave type is decided in one place, with the boss taking precedence where both divide:
+
+| Wave | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| | fight | fight | storm | **boss** | fight | storm | fight | **boss** | storm | fight | fight | **boss** |
+
+`BOSS_EVERY = 4` is a single constant. Worth knowing: at 4 this makes half of all waves
+non-dogfight. Raising it to 5 or 6 protects dogfighting as the core of the game.
+
+**Objectives are bonus only** — they cannot fail you, and the only way to lose is still to run
+out of fighters. Flat points would be ignored, though: next to a 10,000-point storm clear and an
+extra life at 20,000, a 1,000-point bounty is noise and nobody takes a risk for noise. So each
+objective met raises that wave's score **multiplier** (+0.5× each), and clearing all of them
+loads two extra missiles for the next wave — a reward felt in the next fight rather than in a
+number.
+
+There is deliberately no "survive N seconds" objective. A survival timer rewards circling at
+maximum range until the clock runs out. The timed goal is *clear the wave inside N seconds*,
+which rewards pressing the attack. Reinforcement arrival is shown as a HUD countdown instead:
+information, not a goal.
+
+## The hive ship
+
+A procedural capital ship, ~63 units long against a fighter's 5–14, on every 4th wave. Four
+emitter pods sit on four different faces — dorsal, ventral, port, starboard — so there is no
+approach from which two can be hit. **Hull fire does nothing while the pods are up**, and the
+player sees sparks with no damage so they do not mistake it for a large health bar.
+
+Pods are 35 hp each and the core is 80. Lasers sustain about 6.5 dps once the energy budget
+drains, so a pod is one solid gun run; a missile is worth **four times** its normal damage
+against a hardpoint, which makes ordnance the right tool rather than a waste — six missiles at
+their usual 8 could not kill a single pod. It turns at a fifth of a fighter's rate, so the fight
+is positional: get on a face, strip the pod, come round again. Escorts keep arriving so it is
+never a quiet duel.
+
+Each boss is tougher than the last via `bossTier()`, because `diff()` flattens at wave 7 — on
+its own, the second and third capital ships would be identical to the first.
+
+## Taking damage
+
+Ramming used to be the efficient play: a flat 30 damage destroyed anything outright, so a full
+health bar was worth roughly seven free kills. Collision damage now scales with what you hit
+(drone 55 up to hive ship 150) and **the heavy ships survive being rammed** — a Warden takes 40
+and keeps flying, the capital ship does not notice. Enemy fire also scales past `diff()`'s
+wave-7 ceiling via `threat()`, so a drone needs 19 hits to strip a full bar at wave 7 and 13 by
+wave 20, where before it was 33 forever.
+
 ## How it works
 
 Everything is generated at runtime except the ship meshes and four surface

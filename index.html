@@ -196,7 +196,13 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
         <dt>Shots fired</dt><dd id="dShots">0</dd>
         <dt>Number of hits</dt><dd id="dHits">0</dd>
         <dt>Hit-miss ratio</dt><dd id="dRatio">0.0 %</dd>
+        <dt>Objectives met</dt><dd id="dObj">0</dd>
+        <dt>Objective bonus</dt><dd id="dBonus">0</dd>
       </dl>
+    </div>
+    <div class="panel" id="dLogPanel" hidden>
+      <h2>Stage by stage</h2>
+      <table class="threats" id="dLog"></table>
     </div>
     <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button></div>
   </section>
@@ -1177,6 +1183,11 @@ const VOX = {
   'wave-12': ['Wave twelve.', 'brisk'],
   'wave-n': ['New wave.', 'brisk'],
 
+  'boss-1': ['Capital ship on long-range scan.', 'urgent'],
+  'boss-2': ['Those emitter pods are its only weak points. Take them out.', 'brisk'],
+  'boss-3': ['All emitters down! The core is exposed, hit it now!', 'urgent'],
+  'boss-4': ['The hive ship is breaking apart. Outstanding work!', 'warm'],
+
   'storm-1': ['Asteroid storm, dead ahead!', 'urgent'],
   'storm-2': ['And the Swarm is hiding in the rocks. Watch yourself.', 'grave'],
   'storm-3': ['Clear every fragment and there is a bonus in it for you.', 'warm'],
@@ -1338,6 +1349,10 @@ const MISSILE_GLOW = glow(6, 3.5, 1);
 const ROCK_MAT = shared(new THREE.MeshStandardMaterial({ color: 0xb4acbc, roughness: 0.95, metalness: 0.08, flatShading: true }));
 const ROCK_EDGE = shared(new THREE.LineBasicMaterial({ color: new THREE.Color(0.7, 1.2, 1.7), transparent: true, opacity: 0.45 }));
 const SAUCER_EDGE = shared(new THREE.LineBasicMaterial({ color: new THREE.Color(2.4, 2.8, 3.2) }));
+const BOSS_POD = glow(0.35, 3.2, 1.3);
+const BOSS_EXHAUST = glow(1.4, 0.5, 2.8);
+const BOSS_CORE = glow(2.2, 0.6, 3.8);
+const BOSS_CORE_INNER = glow(1.1, 0.3, 1.9);
 
 const dotTex = (() => {
   const c = document.createElement('canvas');
@@ -1955,13 +1970,120 @@ function buildRaider() {
   g.userData = { hull: [hull], engines: [], engineColor: new THREE.Color(2, 3, 2), spin };
   return g;
 }
-const BUILD = { drone: buildDrone, lancer: buildLancer, warden: buildWarden, raider: buildRaider };
+// The Swarm hive ship: the capital vessel fought every fourth wave. Four emitter pods sit on
+// four different faces, so there is no approach from which two can be hit -- clearing them is
+// what exposes the core. Built from primitives the way buildCarrier() is, rather than a model,
+// because nothing in the downloaded ship pack is remotely this size.
+function buildSwarmCapital() {
+  const boss = new THREE.Group();
+
+  // Chitin over industrial plate. Each carries an emissive colour because the hit flash drives
+  // emissiveIntensity, and a material with a black emissive flashes to nothing.
+  const matCarapace = phys(0x162b1e, { emissive: 0x0a2a14, emissiveIntensity: 0.45, roughness: 0.65, metalness: 0.15, ...CHITIN_OPTS });
+  const matPlate = phys(0x22482c, { emissive: 0x0c3a18, emissiveIntensity: 0.45, roughness: 0.45, metalness: 0.28, ...CHITIN_OPTS });
+  const matSinew = phys(0x32133d, { emissive: 0x2a0a38, emissiveIntensity: 0.5, roughness: 0.85, metalness: 0.08, ...CHITIN_OPTS });
+  const matBone = phys(0x2e3d31, { emissive: 0x16281a, emissiveIntensity: 0.4, roughness: 0.55, metalness: 0.18, ...CHITIN_OPTS });
+  const hull = [matCarapace, matPlate, matSinew, matBone];
+
+  // Segmented thorax tapering to the prow, so the silhouette reads as insectoid at any range.
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    const z = -24 + t * 44;
+    const swell = Math.sin(t * Math.PI * 0.85 + 0.35);
+    const sx = 10.5 * swell + 4.2, sy = 6.8 * swell + 3.2;
+    boss.add(part(G.sphere, matCarapace, sx, sy, 7.8, 0, (1 - swell) * 1.4, z));
+    // Dorsal plates flare backward like hardened elytra, deflecting fire from the front.
+    const dorsal = part(G.cone, matPlate, sx * 0.92, sy * 0.72, 7.5, 0, sy * 0.62, z - 1.2);
+    dorsal.rotation.x = -0.36;
+    boss.add(dorsal);
+  }
+
+  // Mandibles framing the prow: the reason it reads as a predator rather than a freighter.
+  for (const side of [-1, 1]) {
+    const pincer = part(G.cone, matPlate, 3.8, 3.2, 18, side * 6.2, -0.4, 26);
+    pincer.rotation.set(1.45, -side * 0.32, side * 0.18);
+    const sub = part(G.cone, matBone, 2.0, 1.8, 12, side * 3.6, -2.8, 24);
+    sub.rotation.set(1.62, -side * 0.18, 0);
+    boss.add(pincer, sub);
+  }
+
+  // Outriggers on bulkheads, with sinew conduits running their length.
+  for (const side of [-1, 1]) {
+    boss.add(texBox(6.5, 3.8, 16, matPlate, 2.0, side * 7.5, 0.5, -4));
+    const blade = part(G.octa, matCarapace, 5.2, 2.6, 22, side * 15.5, 0.4, -3);
+    blade.rotation.set(0, -side * 0.22, side * 0.32);
+    const conduit = part(G.cyl, matSinew, 0.95, 0.95, 17, side * 11.2, 2.2, -4);
+    conduit.rotation.set(0.08, 0, -side * 0.42);
+    boss.add(blade, conduit);
+  }
+
+  // Ventral brood keel: mass low down, so it does not read as symmetrical and weightless.
+  boss.add(part(G.sphere, matCarapace, 7.2, 5.2, 28, 0, -4.8, -2));
+  for (let i = 0; i < 4; i++) boss.add(part(G.sphere, matSinew, 4.4, 3.2, 4.4, 0, -6.6, -10 + i * 7.2));
+
+  // Thruster vents at the stern, each with a trail emitter behind it.
+  boss.add(part(G.torus, matPlate, 5.2, 1.8, 12, 0, 0.5, -29));
+  boss.add(part(G.sphere, BOSS_EXHAUST, 3.2, 3.2, 1.6, 0, 0.5, -29.6));
+  const engines = [V(0, 0.5, -31)];
+  for (const side of [-1, 1]) {
+    const upper = part(G.cyl, matPlate, 2.6, 2.6, 6, side * 6.5, 2.8, -28);
+    upper.rotation.x = Math.PI * 0.5;
+    const lower = part(G.cyl, matPlate, 2.0, 2.0, 5, side * 4.2, -3.2, -26);
+    lower.rotation.x = Math.PI * 0.5;
+    boss.add(upper, lower);
+    boss.add(part(G.sphere, BOSS_EXHAUST, 2.0, 2.0, 1.0, side * 6.5, 2.8, -30.5));
+    boss.add(part(G.sphere, BOSS_EXHAUST, 1.5, 1.5, 0.8, side * 4.2, -3.2, -28));
+    engines.push(V(side * 6.5, 2.8, -31.5), V(side * 4.2, -3.2, -29));
+  }
+
+  // The four pods, one per face. Lasers do about 6 damage a second sustained, so 35 each is one
+  // solid gun run; a missile is worth four times its normal damage here, which makes ordnance
+  // the right tool for a hardpoint rather than a waste.
+  const PODS = [
+    { pos: V(0, 8.2, -4), r: 3.2, rot: [Math.PI * 0.5, 0, 0] },      // dorsal, from above
+    { pos: V(0, -8.2, 7), r: 3.2, rot: [Math.PI * 0.5, 0, 0] },      // ventral, from below
+    { pos: V(-17.5, 0.8, -2), r: 3.0, rot: [0, Math.PI * 0.5, 0] },  // port flank
+    { pos: V(17.5, 0.8, -2), r: 3.0, rot: [0, Math.PI * 0.5, 0] },   // starboard flank
+  ];
+  const weak = PODS.map((cfg) => {
+    const pod = new THREE.Group();
+    pod.position.copy(cfg.pos);
+    const cowl = part(G.torus, matPlate, cfg.r, cfg.r * 0.35, 8);
+    cowl.rotation.set(...cfg.rot);
+    pod.add(cowl, part(G.sphere, BOSS_POD, cfg.r * 0.75, cfg.r * 0.75, cfg.r * 0.75));
+    boss.add(pod);
+    return { obj: pod, local: cfg.pos.clone(), r: cfg.r, hp: 35, max: 35, dead: false, world: V() };
+  });
+
+  // The core, visible from the start but ringed with ribs so it reads as armoured rather than
+  // merely unguarded -- the player should want to shoot it long before they can.
+  const core = new THREE.Group();
+  core.position.set(0, 0, 3);
+  core.add(part(G.octa, BOSS_CORE, 3.2, 4.4, 3.2), part(G.sphere, BOSS_CORE_INNER, 2.2, 2.8, 2.2));
+  boss.add(core);
+  for (const side of [-1, 1]) {
+    for (let r = 0; r < 4; r++) {
+      const rib = part(G.torus, matBone, 5.0, 0.85, 10, side * 1.8, 0.2, -1.8 + r * 2.5);
+      rib.rotation.set(0, side * 0.32, side * (0.8 + r * 0.08));
+      boss.add(rib);
+    }
+  }
+
+  boss.userData = { hull, engines, engineColor: new THREE.Color(0.54, 0.3, 1.0), weak, core, podsLeft: weak.length };
+  return boss;
+}
+
+const BUILD = { drone: buildDrone, lancer: buildLancer, warden: buildWarden, raider: buildRaider, boss: buildSwarmCapital };
 
 const SHIPS = {
-  drone:  { tag: 'DRONE',  plural: 'Drones',         hp: 6,  r: 3.2, speed: 34, turn: 1.15, fireRate: 0.55, dmg: 6,  pts: 100,  ptsForm: 50,  color: 0xffc531 },
-  lancer: { tag: 'LANCER', plural: 'Lancers',        hp: 12, r: 4.0, speed: 30, turn: 1.0,  fireRate: 0.45, dmg: 9,  pts: 160,  ptsForm: 80,  color: 0xff3048 },
-  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 30, r: 6.5, speed: 24, turn: 0.75, fireRate: 0.9,  dmg: 12, pts: 400,  ptsForm: 150, color: 0x22e07a },
-  raider: { tag: 'RAIDER', plural: 'raider saucers', hp: 9,  r: 4.2, speed: 28, turn: 1.0,  fireRate: 1.1,  dmg: 8,  pts: 1000, ptsForm: 1000, color: 0x9fffd0 },
+  drone:  { tag: 'DRONE',  plural: 'Drones',         hp: 6,  r: 3.2, speed: 34, turn: 1.15, fireRate: 0.55, dmg: 8,  pts: 100,  ptsForm: 50,  color: 0xffc531 },
+  lancer: { tag: 'LANCER', plural: 'Lancers',        hp: 12, r: 4.0, speed: 30, turn: 1.0,  fireRate: 0.45, dmg: 13,  pts: 160,  ptsForm: 80,  color: 0xff3048 },
+  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 30, r: 6.5, speed: 24, turn: 0.75, fireRate: 0.9,  dmg: 17, pts: 400,  ptsForm: 150, color: 0x22e07a },
+  raider: { tag: 'RAIDER', plural: 'raider saucers', hp: 9,  r: 4.2, speed: 28, turn: 1.0,  fireRate: 1.1,  dmg: 12,  pts: 1000, ptsForm: 1000, color: 0x9fffd0 },
+  // The hive ship. `hp` is the CORE only -- the four pods are tracked separately and gate access
+  // to it, so the real health pool is 4 x 35 + 80. It turns slowly enough to be out-flown, which
+  // is the whole fight: get behind it, strip a pod, come round again.
+  boss:   { tag: 'HIVE',   plural: 'hive ships',     hp: 80, r: 22,  speed: 11, turn: 0.22, fireRate: 1.5,  dmg: 14, pts: 6000, ptsForm: 6000, color: 0x8a4dff },
 };
 
 // Asteroids: lumpy icosahedra; displacement depends only on position so shared corners stay welded.
@@ -2493,6 +2615,17 @@ let enemies = [], bolts = [], missiles = [], rocks = [];
 const rockSpawns = [];
 let wingman = null;
 let spawnQueue = [], waveT = 0, waveActive = false, nextWaveT = -1, storm = null, overT = -1, titleT = 0, clock = 0;
+// Objectives are BONUS ONLY: they cannot fail you, and the only way to lose is still to run out
+// of fighters. Flat points would be ignored, though -- next to a 10,000-point storm clear and an
+// extra life at 20,000, a 1,000-point bonus is noise, and nobody takes a risk for noise. So each
+// objective met raises this wave's score multiplier, and clearing all of them hands over
+// ordnance for the next wave: a reward you feel in the next fight rather than in a number.
+let objectives = [];        // [{ id, label, need, got, done }]
+let waveMark = null;        // counters at wave start, so progress can be a delta
+let sortieLog = [];         // one row per finished wave, for the debrief
+let carryMissiles = 0;      // earned by clearing every objective in a wave
+const BOSS_EVERY = 4;       // one constant: bosses land on every Nth wave
+const waveKind = (n) => (n % BOSS_EVERY === 0 ? 'boss' : n % 3 === 0 ? 'storm' : 'fight');
 let banner = { text: '', sub: '', t: 0, life: 0 };
 let comms = [];
 const tagCounter = { drone: 0, lancer: 0, warden: 0, raider: 0 };
@@ -2698,16 +2831,28 @@ function updateEnemy(e, dt) {
     }
     case 'beam': updateWardenBeam(e, dt); break;
     case 'raid': updateRaider(e, dt, prey, hasPrey, dist); break;
+    case 'boss': updateBoss(e, dt); return;   // its own movement, firing and escorts
   }
   if (e.captive) e.captive.rotation.y += dt * 1.5;
 
   if (player.alive && player.inv <= 0 && !player.inBeam && pos.distanceTo(player.rig.position) < e.r + 2.5) {
-    damagePlayer(30 * (0.4 + 0.6 * diff()));
-    damageEnemy(e, 99, false);
+    // Eased a little in the early waves so an accidental clip on wave 1 is not instantly fatal,
+    // but it never becomes cheap.
+    damagePlayer((RAM[e.type] || 60) * (0.7 + 0.3 * diff()));
+    const survives = RAM_SURVIVES[e.type];
+    if (survives === undefined) damageEnemy(e, 99, false);
+    else if (survives > 0) damageEnemy(e, survives, false, pos);
+    shake = Math.max(shake, 0.9);
+    shock = Math.max(shock, 0.8);
+    rumble(420, 1);
+    sfx.hull();
+    comm('HALCYON', survives === undefined ? 'You rammed it! Watch your closure rate!' : 'You bounced off its hull! Break off!', 'warn');
     return;
   }
-  for (const box of CARRIER_BOXES) {
-    if (box.containsPoint(pos)) { comm('HALCYON', `${e.name} hit our hull. Point defence caught the wreck.`, 'friend'); damageEnemy(e, 99, false); return; }
+  if (e.type !== 'boss') {
+    for (const box of CARRIER_BOXES) {
+      if (box.containsPoint(pos)) { comm('HALCYON', `${e.name} hit our hull. Point defence caught the wreck.`, 'friend'); damageEnemy(e, 99, false); return; }
+    }
   }
   // Fly-by: a close, fast pass gets a whoosh that sweeps across the stereo field.
   e.flybyCd -= dt;
@@ -2774,12 +2919,13 @@ function enemyFire(e, aim, anyDirection = false) {
   _fd.copy(aim).sub(_fo).normalize();
   const spread = 0.02 + 0.05 * (1 - diff());
   _fd.x += rand(-spread, spread); _fd.y += rand(-spread, spread); _fd.z += rand(-spread, spread);
-  spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff());
+  spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
   sfx.enemyLaser(clamp(90 / (_fo.distanceTo(player.rig.position) + 20), 0.08, 1), panAt(_fo));
 }
 
-function damageEnemy(e, dmg, credit, at) {
+function damageEnemy(e, dmg, credit, at, podMult) {
   if (e.dead) return;
+  if (e.type === 'boss') { damageBoss(e, dmg, credit, at, podMult); return; }
   e.hp -= dmg;
   e.flash = 0.1;
   if (at) for (let i = 0; i < 8; i++) emit(at, rand(-12, 12), rand(-12, 12), rand(-12, 12), _exc.setRGB(4, 3, 1.5), 0.35);
@@ -2801,6 +2947,16 @@ function killEnemy(e, credit) {
     if (!wingman) spawnWingman(e.obj.position.clone());
     else { addScore(1000); comm('HALCYON', 'Rescue shuttle has the captured pilot. Nice shooting. +1000', 'friend'); }
   }
+  if (e.type === 'boss') {
+    // A capital ship coming apart wants more than one explosion.
+    for (let i = 0; i < 7; i++) {
+      const p = e.obj.position.clone().add(V(rand(-22, 22), rand(-14, 14), rand(-28, 28)));
+      setTimeout(() => { if (state === 'play') explode(p, 0x8a4dff, 1.6, true); }, i * 190);
+    }
+    shake = Math.max(shake, 1);
+    comm('HALCYON', 'Capital ship destroyed. That is a serious piece of work, Gold Leader.', 'friend');
+    voice.say(['boss-4'], { key: 'bosskill', cooldown: 4, urgent: true });
+  }
   if (e.type === 'warden') {
     comm('HALCYON', `${e.name} destroyed.`, 'friend');
     if (!e.captive) voice.say(voice.pick('wardenkill-1', 'wardenkill-2', 'wardenkill-3'), { key: 'wardenkill', cooldown: 4 });
@@ -2808,6 +2964,131 @@ function killEnemy(e, credit) {
   scene.remove(e.obj);
   disposeObj(e.obj);
   if (player.target === e) { player.target = null; player.lockT = 0; }
+}
+
+// ---------------------------------------------------------------- the hive ship
+// It turns at a fifth of a fighter's rate, so the fight is positional rather than a duel: get on
+// a face, strip the pod there, come round for the next one. Phase two starts when the last pod
+// dies -- the core opens, and it stops holding station and comes for you.
+const _ba = V(), _bb = V();
+
+function spawnBoss(n) {
+  const pp = player.alive ? player.rig.position : LAUNCH_POS;
+  const fwd = FWD.clone().applyQuaternion(player.rig.quaternion);
+  const origin = pp.clone().addScaledVector(fwd, 620).add(V(rand(-90, 90), rand(30, 90), rand(-90, 90)));
+  const look = new THREE.Object3D();
+  look.position.copy(origin);
+  look.lookAt(pp);
+  jumpFlash(origin);
+  const e = makeEnemy('boss', origin, look.quaternion);
+  e.state = 'boss';
+  e.escortCd = 18;
+  // Each boss is tougher than the last. diff() flattens at wave 7, so without its own tier the
+  // second and third capital ships would be identical to the first.
+  const tier = bossTier(n);
+  e.hp = Math.round(e.d.hp * tier);
+  e.maxHp = e.hp;
+  for (const w of e.obj.userData.weak) {
+    w.hp = Math.round(w.max * tier);
+    w.max = w.hp;
+  }
+  showBanner('CAPITAL SHIP', 'Emitter pods are its weak points', 4);
+  comm('HALCYON', 'Swarm capital ship jumping in. Four emitter pods — strip them and the core opens.', 'warn');
+  voice.say(['boss-1', 'boss-2'], { key: 'boss', cooldown: 4, urgent: true });
+  return e;
+}
+
+function killPod(e, pod, credit) {
+  const ud = e.obj.userData;
+  pod.dead = true;
+  pod.obj.visible = false;
+  ud.podsLeft--;
+  explode(pod.world.clone(), 0x5affc0, 1.1, false);
+  if (credit) addScore(800);
+  if (waveMark) waveMark.pods = ud.weak.length - ud.podsLeft;
+  if (ud.podsLeft > 0) {
+    comm('HALCYON', `Emitter down. ${ud.podsLeft} to go.`, 'friend');
+  } else {
+    // The core becomes a legitimate target only now, which is the whole shape of the fight.
+    ud.core.scale.setScalar(1.35);
+    comm('HALCYON', 'All emitters down! The core is exposed — hit it now!', 'warn');
+    voice.say(['boss-3'], { key: 'bosscore', cooldown: 4, urgent: true });
+  }
+}
+
+// Fire that lands on the hull does nothing while the pods are up. The player has to see that it
+// did nothing, or they will assume the boss is simply a very large health bar.
+function damageBoss(e, dmg, credit, at, podMult) {
+  const ud = e.obj.userData;
+  if (ud.podsLeft > 0) {
+    if (!at) return;
+    let best = null, bd = Infinity;
+    for (const w of ud.weak) {
+      if (w.dead) continue;
+      const d = at.distanceToSquared(w.world);
+      if (d < bd) { bd = d; best = w; }
+    }
+    if (!best || bd > (best.r + 4) * (best.r + 4)) {
+      for (let i = 0; i < 4; i++) emit(at, rand(-10, 10), rand(-10, 10), rand(-10, 10), _exc.setRGB(2, 2, 2.4), 0.25);
+      sfx.hit(panAt(at), 0.3);
+      return;
+    }
+    // A missile is worth four times its damage against a hardpoint, which makes ordnance the
+    // right tool here rather than a waste -- six missiles at 8 could not even kill one pod.
+    best.hp -= dmg * (podMult || 1);
+    e.flash = 0.1;
+    sfx.hit(panAt(best.world), 0.9);
+    if (best.hp <= 0) killPod(e, best, credit);
+    return;
+  }
+  e.hp -= dmg;
+  e.flash = 0.1;
+  sfx.hit(panAt(e.obj.position), 1);
+  if (e.hp <= 0) killEnemy(e, credit);
+}
+
+function updateBoss(e, dt) {
+  const ud = e.obj.userData;
+  e.fireCd -= dt;
+  // The pods ride the hull, so their world positions have to be refreshed every frame: both hit
+  // detection and the HUD markers read them.
+  e.obj.updateMatrixWorld(true);
+  for (const w of ud.weak) if (!w.dead) w.obj.getWorldPosition(w.world);
+
+  const pp = player.alive ? player.rig.position : CARRIER_POS;
+  const exposed = ud.podsLeft === 0;
+  if (exposed) {
+    steer(e, pp, dt, e.spd * 1.6, 1.5);
+  } else {
+    // A slow orbit off the player, close enough to stay threatening but never cornering them.
+    const a = e.t * 0.18 + e.phase;
+    _ba.set(Math.cos(a) * 190, 55 + Math.sin(a * 1.7) * 40, Math.sin(a) * 190).add(pp);
+    steer(e, _ba, dt, e.spd, 1);
+  }
+
+  // It fires from whichever pods are still alive, so stripping them cuts its firepower as well
+  // as opening the core: progress the player can hear as well as see.
+  if (player.alive && e.fireCd <= 0) {
+    const guns = exposed ? [e.obj.position] : ud.weak.filter((w) => !w.dead).map((w) => w.world);
+    if (guns.length) {
+      e.fireCd = (e.d.fireRate * rand(0.8, 1.2)) / Math.max(0.4, diff());
+      for (const g of guns) {
+        leadPoint(g, PLAYER, ENEMY_BOLT_SPEED, _bb);
+        _ba.copy(_bb).sub(g).normalize();
+        _ba.x += rand(-0.03, 0.03); _ba.y += rand(-0.03, 0.03); _ba.z += rand(-0.03, 0.03);
+        spawnBolt(g, _ba.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
+        sfx.enemyLaser(clamp(120 / (g.distanceTo(pp) + 20), 0.1, 1), panAt(g));
+      }
+    }
+  }
+
+  // Escorts keep arriving, so the player cannot simply duel the capital ship undisturbed.
+  e.escortCd -= dt;
+  if (e.escortCd <= 0) {
+    e.escortCd = 26;
+    spawnFlight(Math.random() < 0.5 ? 'drone' : 'lancer', 3);
+  }
+  emitTrail(e, 0.5);
 }
 
 // ---------------------------------------------------------------- wingman (a pilot rescued from a Warden)
@@ -2916,7 +3197,12 @@ function updateRocks(dt) {
       if (_rk.y > 450) k.obj.position.y -= 900; else if (_rk.y < -450) k.obj.position.y += 900;
       if (_rk.z > 450) k.obj.position.z -= 900; else if (_rk.z < -450) k.obj.position.z += 900;
     } else if (_rk.lengthSq() > 1000 * 1000) { k.dead = true; continue; }
-    if (player.alive && player.inv <= 0 && _rk.length() < k.r + 2.5) { damagePlayer(k.size * 14 * (0.4 + 0.6 * diff())); splitRock(k, true); continue; }
+    if (player.alive && player.inv <= 0 && _rk.length() < k.r + 2.5) {
+      damagePlayer(k.size * 20 * (0.7 + 0.3 * diff()));
+      shake = Math.max(shake, 0.7);
+      splitRock(k, true);
+      continue;
+    }
     for (const e of enemies) {
       if (!e.dead && e.state !== 'show' && e.obj.position.distanceTo(k.obj.position) < k.r + e.r * 0.6) { damageEnemy(e, 99, false); splitRock(k, false); break; }
     }
@@ -3018,7 +3304,7 @@ function updateMissiles(dt) {
     emit(s.pos, rand(-1, 1), rand(-1, 1), rand(-1, 1), Math.random() < 0.5 ? _smoke : _fire, 0.9);
     let hit = null;
     for (const e of enemies) if (!e.dead && e.state !== 'show' && segHit(prev, s.pos, e.obj.position, e.r + 1.5)) { hit = e; break; }
-    if (hit) { s.dead = true; explode(s.pos, 0xffb547, 0.6, false); damageEnemy(hit, 8, true); continue; }
+    if (hit) { s.dead = true; explode(s.pos, 0xffb547, 0.6, false); damageEnemy(hit, 8, true, s.pos, 4); continue; }
     for (const k of rocks) if (!k.dead && segHit(prev, s.pos, k.obj.position, k.r)) { s.dead = true; splitRock(k, true); break; }
     if (!s.dead && s.life <= 0) { s.dead = true; explode(s.pos, 0xffb547, 0.4, false); }
   }
@@ -3243,13 +3529,69 @@ function finishCapture() {
 // ---------------------------------------------------------------- waves
 // Difficulty: the Swarm starts at a quarter strength and reaches full strength by wave 7.
 const diff = () => Math.min(1, 0.25 + 0.125 * Math.max(0, wave - 1));
+// diff() is capped at wave 7, so every boss from the second one onward would otherwise face
+// identical escorts. Bosses get their own tier instead of re-tuning the whole game's ramp.
+const bossTier = (n) => 1 + Math.max(0, n / BOSS_EVERY - 1) * 0.3;
+// How hard enemy fire bites, by how deep into the sortie you are. diff() is capped at wave 7,
+// so on its own the game stopped getting more dangerous there -- a drone needed 33 hits to
+// strip a full bar at wave 7 and still needed 33 at wave 30. This keeps climbing.
+const threat = () => 1 + Math.max(0, wave - 1) * 0.05;
+// What running into something costs. Ramming used to be the efficient play: a flat 30 damage
+// killed anything outright, so a full health bar was worth roughly seven free kills. Now the
+// cost scales with what you hit, and the heavy ships simply survive being rammed.
+const RAM = { drone: 55, lancer: 75, warden: 130, raider: 70, boss: 150 };
+// Heavy hulls shrug off a collision. Light ones do not.
+const RAM_SURVIVES = { warden: 40, boss: 0 };
+
+function objective(id, label, need) { return { id, label, need, got: 0, done: false }; }
+
+// How many Swarm ships this wave will actually send, read off the spawn queue rather than
+// guessed, so the kill objective is always exactly achievable.
+function queuedShips() {
+  return spawnQueue.reduce((n, q) => n + (q.type === 'raider' ? 1 : q.count || 1), 0);
+}
+
+function buildObjectives(n, kind) {
+  const o = [];
+  if (kind === 'storm') {
+    o.push(objective('rocks', 'Clear every asteroid fragment', storm.total));
+    o.push(objective('kills', 'Break up the escort', Math.max(2, Math.round(queuedShips() * 0.6))));
+  } else if (kind === 'boss') {
+    o.push(objective('pods', 'Knock out the emitter pods', 4));
+    o.push(objective('noloss', 'Do not lose a fighter', 1));
+  } else {
+    o.push(objective('kills', 'Destroy the strike group', queuedShips()));
+    // A "survive N seconds" goal would reward circling at max range until the clock ran out.
+    // Putting the clock on CLEARING the wave rewards pressing the attack instead.
+    o.push(objective('fast', `Clear inside ${30 + n * 6}s`, 30 + n * 6));
+  }
+  o.push(objective('hull', 'Finish above half hull', 1));
+  return o;
+}
+
+// Called every frame while a wave is live. `fast` is settled at wave end, not here.
+function updateObjectives() {
+  if (!waveMark) return;
+  for (const o of objectives) {
+    if (o.id === 'kills') o.got = kills - waveMark.kills;
+    else if (o.id === 'rocks') o.got = storm ? storm.destroyed : waveMark.stormDone;
+    else if (o.id === 'noloss') o.got = lives < waveMark.lives ? 0 : 1;
+    else if (o.id === 'hull') o.got = player.alive && player.hull >= 50 ? 1 : 0;
+    else if (o.id === 'pods') o.got = waveMark.pods;
+    if (o.id !== 'fast') o.done = o.got >= o.need;
+  }
+}
 const captureTime = () => 2.4 + 2.4 * (1 - diff());
 function startWave(n) {
   wave = n;
   waveT = 0;
   waveActive = true;
   spawnQueue = [];
-  if (n % 3 === 0) {
+  const kind = waveKind(n);
+  // Boss takes precedence where both 4 and 3 divide the wave number, so wave 12 is a boss.
+  if (kind === 'boss') {
+    spawnBoss(n);
+  } else if (kind === 'storm') {
     const big = 5 + Math.floor(n / 3);
     storm = { total: big * 7, destroyed: 0, t: 0 };
     const pp = player.rig.position;
@@ -3282,15 +3624,43 @@ function startWave(n) {
     showBanner(`WAVE ${n}`, n === 1 ? 'Swarm interceptors inbound' : 'Swarm strike group inbound');
     voice.say([waveClip(n), n === 1 ? 'scan-1' : 'scan-2', 'scan-3'], { key: 'wave', cooldown: 2 });
   }
+  // Snapshot the running totals so objective progress can be read as a delta, and build the
+  // objectives only after the spawn queue exists -- the kill target is counted off it.
+  waveMark = { kills, rocks: rocksDestroyed, score, lives, stormDone: 0, pods: 0 };
+  objectives = buildObjectives(n, kind);
   sfx.wave();
 }
 function waveComplete() {
   waveActive = false;
-  nextWaveT = 7;
-  player.missiles = 6;
+  nextWaveT = 9;                 // a beat longer than before: there is a summary to read now
+  updateObjectives();
+  // `fast` can only be judged now, at the moment the sector actually goes quiet.
+  for (const o of objectives) if (o.id === 'fast') o.done = waveT <= o.need;
+
+  const met = objectives.filter((o) => o.done).length;
+  const perfect = met === objectives.length && objectives.length > 0;
+  // The multiplier applies to what this wave actually earned, so a good wave is worth more than
+  // a flat bounty ever would be.
+  const earned = score - waveMark.score;
+  const mult = 1 + met * 0.5;
+  const bonus = Math.max(0, Math.round(earned * (mult - 1)));
+  if (bonus) addScore(bonus);
+  // Clearing the board pays in ordnance, which is felt in the next fight rather than in a number.
+  carryMissiles = perfect ? 2 : 0;
+  player.missiles = 6 + carryMissiles;
   if (player.alive) { player.hull = Math.min(100, player.hull + 40); player.shield = 100; player.alarmed = false; }
-  showBanner(`WAVE ${wave} CLEAR`, 'Rearming · missiles replenished · hull patched');
-  comm('HALCYON', 'Sector clear. Rearm drone en route; hold position for the next wave.', 'friend');
+
+  sortieLog.push({
+    wave, kind: waveKind(wave), met, total: objectives.length, perfect,
+    earned, bonus, mult, time: waveT,
+    objectives: objectives.map((o) => ({ label: o.label, done: o.done, got: o.got, need: o.need })),
+  });
+
+  showBanner(`WAVE ${wave} CLEAR`,
+    perfect ? `All objectives · ×${mult.toFixed(1)} · +${bonus}` : `${met}/${objectives.length} objectives · ×${mult.toFixed(1)}`);
+  comm('HALCYON', perfect
+    ? `Every objective met. Multiplier ×${mult.toFixed(1)}, bonus ${bonus}. Two extra missiles loaded.`
+    : `Sector clear. ${met} of ${objectives.length} objectives met, bonus ${bonus}.`, 'friend');
   voice.say([voice.pick('clear-1', 'clear-2', 'clear-3'), 'clear-4'], { key: 'clear', cooldown: 3 });
 }
 function endStorm() {
@@ -3298,6 +3668,7 @@ function endStorm() {
   const bonus = perfect ? 10000 : storm.destroyed * 100;
   for (const k of rocks) if (k.storm && !k.dead) { k.dead = true; scene.remove(k.obj); }
   addScore(bonus);
+  if (waveMark) waveMark.stormDone = storm.destroyed;
   comm('HALCYON', perfect ? `Every fragment accounted for. Perfect! Bonus ${bonus}.` : `Storm cleared ${storm.destroyed} of ${storm.total} fragments. Bonus ${bonus}.`, 'friend');
   voice.say(perfect ? ['stormend-1', 'stormend-2'] : ['stormend-3', 'stormend-4'], { key: 'storm', cooldown: 3 });
   storm = null;
@@ -3325,6 +3696,7 @@ function updateFlow(dt) {
     const left = rocks.some((k) => k.storm && !k.dead) || rockSpawns.length > 0;
     if ((!left && !spawnQueue.length && !enemies.length) || storm.t > 160) endStorm();
   }
+  if (waveActive) updateObjectives();
   if (waveActive && !storm && !spawnQueue.length && !enemies.length) waveComplete();
   if (nextWaveT >= 0) {
     nextWaveT -= dt;
@@ -3347,6 +3719,7 @@ function startGame() {
   audioUnlock();
   clearWorld();
   score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0;
   resetPlayer();
   player.missiles = 6;
   state = 'play';
@@ -3375,6 +3748,17 @@ function gameOver() {
   $('dShots').textContent = String(shots);
   $('dHits').textContent = String(hits);
   $('dRatio').textContent = ratio.toFixed(1) + ' %';
+  // Sortie summary: every stage flown, what it paid, and which objectives were met.
+  const totMet = sortieLog.reduce((n, r) => n + r.met, 0);
+  const totAll = sortieLog.reduce((n, r) => n + r.total, 0);
+  const totBonus = sortieLog.reduce((n, r) => n + r.bonus, 0);
+  $('dObj').textContent = `${totMet} / ${totAll}`;
+  $('dBonus').textContent = totBonus.toLocaleString();
+  const KIND = { fight: 'Strike group', storm: 'Asteroid storm', boss: 'Capital ship' };
+  $('dLog').innerHTML = sortieLog.map((r) => `<tr>
+    <td><span class="sw" style="--c: ${r.perfect ? 'var(--green)' : 'var(--dim)'}"></span>Wave ${r.wave}<span class="tag">${KIND[r.kind]} · ${r.time.toFixed(0)}s · ${r.met}/${r.total} objectives</span></td>
+    <td class="n">${(r.earned + r.bonus).toLocaleString()}${r.bonus ? `<span class="tag">+${r.bonus.toLocaleString()} bonus</span>` : ''}</td></tr>`).join('');
+  $('dLogPanel').hidden = sortieLog.length === 0;
   $('dRank').textContent = score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer';
   $('over').hidden = false;
   overShown = performance.now();
@@ -3877,6 +4261,35 @@ function drawHud() {
   c.fillText(String(score).padStart(6, '0'), 16, 40);
   c.font = MONO(16);
   c.fillText(storm ? `${wave} · STORM ${storm.destroyed}/${storm.total}` : String(wave), 16, 75);
+
+  // Objectives, live. Bonus only, so they are informational rather than a threat -- which is why
+  // they sit quietly under the wave number instead of anywhere near the gunsight.
+  let oy = 96;
+  if (objectives.length && !narrow) {
+    c.font = MONO(10); c.fillStyle = C.dim;
+    c.fillText('OBJECTIVES', 16, oy);
+    oy += 15;
+    for (const o of objectives) {
+      const prog = o.id === 'fast' ? `${Math.min(waveT, o.need).toFixed(0)}/${o.need}s`
+        : o.need > 1 ? `${Math.min(o.got, o.need)}/${o.need}` : '';
+      // `fast` counts down against you, so it is only green once the wave is actually over.
+      const good = o.done;
+      c.font = FONT(11, good ? 700 : 400);
+      c.fillStyle = good ? C.green : C.dim;
+      c.fillText(`${good ? '✔' : '·'} ${o.label}${prog ? `  ${prog}` : ''}`, 16, oy);
+      oy += 15;
+    }
+  }
+  // The next flight's arrival, as information rather than a goal. A countdown tells you how long
+  // you have to finish the ones already on you.
+  if (waveActive && spawnQueue.length) {
+    const eta = Math.max(0, spawnQueue[0].t - waveT);
+    if (eta < 20) {
+      c.font = MONO(11);
+      c.fillStyle = eta < 5 ? C.amber : C.dim;
+      c.fillText(`REINFORCEMENTS ${eta.toFixed(0)}s`, 16, oy + 4);
+    }
+  }
   c.textAlign = 'right';
   c.font = MONO(11); c.fillStyle = C.dim;
   c.fillText('SHIPS', W - 16, 22);
@@ -3890,6 +4303,45 @@ function drawHud() {
     c.fillText(`GOLD TWO ${Math.round((wingman.hp / 40) * 100)}%`, W - 16, 96);
   }
   if (hi > 0) { c.textAlign = 'center'; c.font = MONO(11); c.fillStyle = C.dim; c.fillText(`HIGH ${String(hi).padStart(6, '0')}`, cx, 22); }
+
+  // Capital ship status. One bar segment per emitter pod, so a glance tells you how far through
+  // the first phase you are; the bar becomes a single core bar once they are all down.
+  const bossNow = enemies.find((e) => e.type === 'boss' && !e.dead);
+  if (bossNow) {
+    const ud = bossNow.obj.userData;
+    const bw = Math.min(W - 80, 360), bx = cx - bw / 2, by = 42;
+    c.textAlign = 'center';
+    c.font = MONO(10);
+    c.fillStyle = ud.podsLeft ? C.dim : C.red;
+    c.fillText(ud.podsLeft ? `HIVE SHIP · ${ud.podsLeft} EMITTERS` : 'HIVE SHIP · CORE EXPOSED', cx, by - 8);
+    if (ud.podsLeft) {
+      const segW = bw / ud.weak.length;
+      ud.weak.forEach((w, i) => {
+        const sx = bx + i * segW;
+        c.fillStyle = 'rgba(143, 243, 255, 0.12)';
+        c.fillRect(sx + 1, by, segW - 2, 7);
+        if (!w.dead) {
+          c.fillStyle = C.green;
+          c.fillRect(sx + 1, by, (segW - 2) * clamp(w.hp / w.max, 0, 1), 7);
+        }
+      });
+    } else {
+      c.fillStyle = 'rgba(255, 77, 94, 0.2)';
+      c.fillRect(bx, by, bw, 7);
+      c.fillStyle = C.red;
+      c.fillRect(bx, by, bw * clamp(bossNow.hp / bossNow.maxHp, 0, 1), 7);
+    }
+    // Brackets on the live pods: without them the player cannot tell which face to attack next.
+    for (const w of ud.weak) {
+      if (w.dead) continue;
+      proj(w.world, P1);
+      if (P1.behind) continue;
+      c.strokeStyle = C.green; c.lineWidth = 1.6; c.globalAlpha = 0.85;
+      corners(c, P1.x, P1.y, Math.max(10, (w.r * fovK) / -P1.lz), 6);
+      c.globalAlpha = 1;
+    }
+    c.textAlign = 'left';
+  }
 
   // Comms log
   c.textAlign = 'left';
@@ -3931,6 +4383,48 @@ function drawHud() {
   if (player.capturing) {
     c.font = FONT(26, 700); c.fillStyle = C.green;
     c.fillText('CAPTURED', cx, H / 2);
+  }
+
+  // Between-wave summary: what the last stage actually paid, while the sector is quiet.
+  if (nextWaveT >= 0 && sortieLog.length && state === 'play') {
+    const r = sortieLog[sortieLog.length - 1];
+    const pw = Math.min(W - 48, 420), ph = 58 + r.objectives.length * 18;
+    const px = cx - pw / 2, py = clamp(H * 0.16, 70, 150);
+    c.fillStyle = 'rgba(4, 14, 24, 0.86)';
+    c.fillRect(px, py, pw, ph);
+    c.strokeStyle = r.perfect ? C.green : 'rgba(143, 243, 255, 0.3)';
+    c.lineWidth = 1;
+    c.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+    c.textAlign = 'left';
+    c.font = MONO(10); c.fillStyle = C.hud;
+    c.fillText(`WAVE ${r.wave} DEBRIEF`, px + 12, py + 16);
+    c.textAlign = 'right';
+    c.fillStyle = r.perfect ? C.green : C.dim;
+    c.fillText(r.perfect ? 'ALL OBJECTIVES' : `${r.met}/${r.total} OBJECTIVES`, px + pw - 12, py + 16);
+    c.textAlign = 'left';
+    let y = py + 34;
+    for (const o of r.objectives) {
+      c.font = FONT(11, o.done ? 700 : 400);
+      c.fillStyle = o.done ? C.green : C.dim;
+      c.fillText(`${o.done ? '✔' : '✘'} ${o.label}`, px + 12, y);
+      if (o.need > 1) {
+        c.textAlign = 'right'; c.font = MONO(10);
+        c.fillText(`${Math.min(o.got, o.need)}/${o.need}`, px + pw - 12, y);
+        c.textAlign = 'left';
+      }
+      y += 18;
+    }
+    c.font = MONO(11); c.fillStyle = C.dim;
+    c.fillText(`${r.earned.toLocaleString()} × ${r.mult.toFixed(1)}`, px + 12, y + 10);
+    c.textAlign = 'right';
+    c.fillStyle = r.bonus ? C.amber : C.dim;
+    c.fillText(`BONUS +${r.bonus.toLocaleString()}`, px + pw - 12, y + 10);
+    c.textAlign = 'center';
+    if (r.perfect) {
+      c.font = MONO(10); c.fillStyle = C.green;
+      c.fillText('+2 MISSILES LOADED', cx, y + 26);
+    }
+    c.textAlign = 'left';
   }
 
   // Wave banner
@@ -4117,8 +4611,9 @@ function update(dt) {
       if (!e.dead && e.state !== 'show' && e.obj.position.distanceToSquared(player.rig.position) < 220 * 220) near++;
     }
   }
+  const bossAlive = enemies.some((e) => e.type === 'boss' && !e.dead);
   music.update(dt, {
-    state, paused, wave, near, enemies: enemies.length,
+    state, paused, wave, near: near + (bossAlive ? 3 : 0), enemies: enemies.length,
     hull: player.hull, alive: player.alive, inBeam: player.inBeam, capturing: !!player.capturing,
   });
   // Range to the Halcyon sets the link quality, so drifting far out audibly costs you the

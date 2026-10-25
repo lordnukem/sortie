@@ -1,298 +1,310 @@
 {
  "clips": {
   "alert-1": {
-   "dur": 1.4
+   "dur": 1.463
   },
   "alert-2": {
-   "dur": 0.886
+   "dur": 0.94
   },
   "alert-3": {
-   "dur": 1.228
+   "dur": 1.306
   },
   "alert-4": {
-   "dur": 1.641
+   "dur": 1.698
   },
   "beam-1": {
-   "dur": 0.669
-  },
-  "beam-2": {
-   "dur": 2.16
-  },
-  "capture-1": {
-   "dur": 1.775
-  },
-  "capture-2": {
-   "dur": 1.017
-  },
-  "clear-1": {
-   "dur": 2.471
-  },
-  "clear-2": {
-   "dur": 2.864
-  },
-  "clear-3": {
-   "dur": 2.094
-  },
-  "clear-4": {
-   "dur": 1.67
-  },
-  "dir-0": {
-   "dur": 0.536
-  },
-  "dir-1": {
-   "dur": 1.137
-  },
-  "dir-2": {
-   "dur": 0.726
-  },
-  "dir-3": {
-   "dur": 0.91
-  },
-  "dir-4": {
-   "dur": 0.543
-  },
-  "dir-5": {
    "dur": 0.731
   },
-  "dir-6": {
-   "dur": 0.52
+  "beam-2": {
+   "dur": 2.22
   },
-  "dir-7": {
-   "dur": 1.046
+  "boss-1": {
+   "dur": 1.79
   },
-  "extra-1": {
-   "dur": 2.278
+  "boss-2": {
+   "dur": 3.161
   },
-  "extra-2": {
-   "dur": 2.443
+  "boss-3": {
+   "dur": 2.978
   },
-  "freed-1": {
-   "dur": 1.061
+  "boss-4": {
+   "dur": 3.082
   },
-  "freed-2": {
-   "dur": 2.647
+  "capture-1": {
+   "dur": 1.829
   },
-  "hull-1": {
-   "dur": 1.818
+  "capture-2": {
+   "dur": 1.071
   },
-  "hull-2": {
-   "dur": 2.077
+  "clear-1": {
+   "dur": 2.534
   },
-  "in-drone-1": {
-   "dur": 1.033
+  "clear-2": {
+   "dur": 2.926
   },
-  "in-drone-2": {
-   "dur": 1.281
-  },
-  "in-drone-3": {
-   "dur": 1.096
-  },
-  "in-drone-4": {
-   "dur": 1.24
-  },
-  "in-drone-5": {
-   "dur": 1.229
-  },
-  "in-drone-6": {
-   "dur": 1.16
-  },
-  "in-lancer-1": {
-   "dur": 1.083
-  },
-  "in-lancer-2": {
-   "dur": 1.308
-  },
-  "in-lancer-3": {
-   "dur": 1.331
-  },
-  "in-lancer-4": {
-   "dur": 1.072
-  },
-  "in-lancer-5": {
-   "dur": 1.397
-  },
-  "in-lancer-6": {
-   "dur": 1.255
-  },
-  "in-warden-1": {
-   "dur": 1.158
-  },
-  "in-warden-2": {
-   "dur": 1.286
-  },
-  "in-warden-3": {
-   "dur": 1.42
-  },
-  "in-warden-4": {
-   "dur": 1.333
-  },
-  "in-warden-5": {
-   "dur": 1.156
-  },
-  "in-warden-6": {
-   "dur": 1.243
-  },
-  "launch-1": {
-   "dur": 2.066
-  },
-  "launch-2": {
-   "dur": 3.334
-  },
-  "launch-3": {
-   "dur": 1.05
-  },
-  "lock-1": {
-   "dur": 1.054
-  },
-  "lock-2": {
-   "dur": 1.588
-  },
-  "lock-3": {
-   "dur": 0.795
-  },
-  "lock-4": {
-   "dur": 1.116
-  },
-  "lost-1": {
-   "dur": 0.907
-  },
-  "lost-2": {
-   "dur": 2.416
-  },
-  "lost-all-1": {
-   "dur": 0.547
-  },
-  "lost-all-2": {
-   "dur": 1.288
-  },
-  "lost-all-3": {
+  "clear-3": {
    "dur": 2.168
   },
+  "clear-4": {
+   "dur": 1.724
+  },
+  "dir-0": {
+   "dur": 0.601
+  },
+  "dir-1": {
+   "dur": 1.202
+  },
+  "dir-2": {
+   "dur": 0.784
+  },
+  "dir-3": {
+   "dur": 0.967
+  },
+  "dir-4": {
+   "dur": 0.601
+  },
+  "dir-5": {
+   "dur": 0.81
+  },
+  "dir-6": {
+   "dur": 0.575
+  },
+  "dir-7": {
+   "dur": 1.123
+  },
+  "extra-1": {
+   "dur": 2.351
+  },
+  "extra-2": {
+   "dur": 2.508
+  },
+  "freed-1": {
+   "dur": 1.123
+  },
+  "freed-2": {
+   "dur": 2.717
+  },
+  "hull-1": {
+   "dur": 1.881
+  },
+  "hull-2": {
+   "dur": 2.142
+  },
+  "in-drone-1": {
+   "dur": 1.097
+  },
+  "in-drone-2": {
+   "dur": 1.358
+  },
+  "in-drone-3": {
+   "dur": 1.149
+  },
+  "in-drone-4": {
+   "dur": 1.306
+  },
+  "in-drone-5": {
+   "dur": 1.306
+  },
+  "in-drone-6": {
+   "dur": 1.228
+  },
+  "in-lancer-1": {
+   "dur": 1.149
+  },
+  "in-lancer-2": {
+   "dur": 1.384
+  },
+  "in-lancer-3": {
+   "dur": 1.384
+  },
+  "in-lancer-4": {
+   "dur": 1.149
+  },
+  "in-lancer-5": {
+   "dur": 1.463
+  },
+  "in-lancer-6": {
+   "dur": 1.332
+  },
+  "in-warden-1": {
+   "dur": 1.228
+  },
+  "in-warden-2": {
+   "dur": 1.358
+  },
+  "in-warden-3": {
+   "dur": 1.489
+  },
+  "in-warden-4": {
+   "dur": 1.411
+  },
+  "in-warden-5": {
+   "dur": 1.228
+  },
+  "in-warden-6": {
+   "dur": 1.306
+  },
+  "launch-1": {
+   "dur": 2.142
+  },
+  "launch-2": {
+   "dur": 3.396
+  },
+  "launch-3": {
+   "dur": 1.123
+  },
+  "lock-1": {
+   "dur": 1.123
+  },
+  "lock-2": {
+   "dur": 1.646
+  },
+  "lock-3": {
+   "dur": 0.862
+  },
+  "lock-4": {
+   "dur": 1.176
+  },
+  "lost-1": {
+   "dur": 0.967
+  },
+  "lost-2": {
+   "dur": 2.482
+  },
+  "lost-all-1": {
+   "dur": 0.601
+  },
+  "lost-all-2": {
+   "dur": 1.358
+  },
+  "lost-all-3": {
+   "dur": 2.247
+  },
   "lost-cap-1": {
-   "dur": 1.122
+   "dur": 1.176
   },
   "lost-cap-2": {
-   "dur": 2.715
+   "dur": 2.769
   },
   "raider-1": {
-   "dur": 1.4
+   "dur": 1.463
   },
   "raider-2": {
-   "dur": 3.009
+   "dur": 3.082
   },
   "rescue-1": {
-   "dur": 1.711
+   "dur": 1.776
   },
   "rescue-2": {
-   "dur": 1.761
+   "dur": 1.829
   },
   "respawn-1": {
-   "dur": 1.459
+   "dur": 1.515
   },
   "respawn-2": {
-   "dur": 2.12
+   "dur": 2.194
   },
   "scan-1": {
-   "dur": 2.484
+   "dur": 2.56
   },
   "scan-2": {
-   "dur": 2.432
+   "dur": 2.508
   },
   "scan-3": {
-   "dur": 2.1
+   "dur": 2.168
   },
   "shields-1": {
-   "dur": 1.047
+   "dur": 1.123
   },
   "shields-2": {
-   "dur": 1.111
+   "dur": 1.176
   },
   "shields-3": {
-   "dur": 0.838
+   "dur": 0.914
   },
   "shields-4": {
-   "dur": 1.223
+   "dur": 1.28
   },
   "storm-1": {
-   "dur": 1.505
+   "dur": 1.567
   },
   "storm-2": {
-   "dur": 3.254
+   "dur": 3.318
   },
   "storm-3": {
-   "dur": 3.019
+   "dur": 3.082
   },
   "stormend-1": {
-   "dur": 1.473
+   "dur": 1.541
   },
   "stormend-2": {
-   "dur": 1.898
+   "dur": 1.959
   },
   "stormend-3": {
-   "dur": 1.188
+   "dur": 1.254
   },
   "stormend-4": {
-   "dur": 0.847
+   "dur": 0.914
   },
   "warden-1": {
-   "dur": 1.052
+   "dur": 1.123
   },
   "warden-2": {
-   "dur": 3.498
+   "dur": 3.553
   },
   "wardenkill-1": {
-   "dur": 1.945
+   "dur": 2.011
   },
   "wardenkill-2": {
-   "dur": 1.266
+   "dur": 1.332
   },
   "wardenkill-3": {
-   "dur": 2.339
+   "dur": 2.403
   },
   "wave-1": {
-   "dur": 0.613
+   "dur": 0.679
   },
   "wave-10": {
-   "dur": 0.622
+   "dur": 0.679
   },
   "wave-11": {
-   "dur": 0.666
+   "dur": 0.731
   },
   "wave-12": {
-   "dur": 0.686
+   "dur": 0.758
   },
   "wave-2": {
-   "dur": 0.535
+   "dur": 0.601
   },
   "wave-3": {
-   "dur": 0.696
+   "dur": 0.758
   },
   "wave-4": {
-   "dur": 0.604
+   "dur": 0.679
   },
   "wave-5": {
-   "dur": 0.782
+   "dur": 0.836
   },
   "wave-6": {
-   "dur": 0.798
+   "dur": 0.862
   },
   "wave-7": {
-   "dur": 0.629
+   "dur": 0.705
   },
   "wave-8": {
-   "dur": 0.723
+   "dur": 0.784
   },
   "wave-9": {
-   "dur": 0.645
+   "dur": 0.705
   },
   "wave-n": {
-   "dur": 0.593
+   "dur": 0.653
   },
   "wingdown-1": {
-   "dur": 0.972
+   "dur": 1.045
   },
   "wingdown-2": {
-   "dur": 2.076
+   "dur": 2.142
   }
  },
  "format": "mp3 48kbps mono 22050Hz, transmitter-processed; link simulated at runtime",

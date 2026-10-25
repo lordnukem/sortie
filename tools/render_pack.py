@@ -67,6 +67,16 @@ def read_vox(path: Path) -> dict[str, tuple[str, str]]:
     return out
 
 
+def _probe_dur(path: Path) -> float:
+    """Duration of a clip this run did not render, so the manifest can still describe it."""
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    try:
+        return round(float(r.stdout.strip()), 3)
+    except ValueError:
+        return 0.0
+
+
 def run(cmd: list[str], stdin: str | None = None) -> None:
     r = subprocess.run(cmd, input=stdin, text=True, capture_output=True)
     if r.returncode != 0:
@@ -140,13 +150,32 @@ def main() -> int:
 
     rows.sort(key=lambda r: r["id"])
     total = sum(r["bytes"] for r in rows)
+
+    # The manifest must list every clip on disk, not just the ones this run produced. Writing
+    # only `rows` meant a `--only` render silently orphaned the rest of the pack: the files were
+    # still there, but the game loads from the manifest, so everything missing from it fell back
+    # to speech synthesis. Rebuild it from the VOX table intersected with what is actually on
+    # disk, which is correct whether this was a full render or a single line.
+    full = read_vox(GAME)
+    clips = {}
+    for cid, (_text, _mood) in sorted(full.items()):
+        mp3 = out / f"{cid}.mp3"
+        if not mp3.is_file():
+            continue
+        fresh = next((r for r in rows if r["id"] == cid), None)
+        clips[cid] = {"dur": fresh["dur"]} if fresh else {"dur": _probe_dur(mp3)}
     manifest = {
         "quality": a.quality,
         "voice": "piper en_GB-cori-medium (public domain, trained from scratch)",
         "format": "mp3 48kbps mono 22050Hz, transmitter-processed; link simulated at runtime",
-        "clips": {r["id"]: {"dur": r["dur"]} for r in rows},
+        "clips": clips,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    missing = sorted(set(full) - set(clips))
+    if missing:
+        print(f"note: {len(missing)} VOX line(s) have no clip yet: {missing[:6]}"
+              f"{'...' if len(missing) > 6 else ''}")
+    print(f"manifest lists {len(clips)} clip(s)")
     print(f"\n{len(rows)} clips, {total / 1024:.0f} KiB total, "
           f"{total / max(len(rows), 1) / 1024:.1f} KiB average")
     if failed:
