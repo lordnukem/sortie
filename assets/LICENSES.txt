@@ -1,0 +1,5 @@
+﻿Third-party assets, all released under Creative Commons CC0 1.0 (public domain):
+- Ship models and q_*.jpg textures (embedded in ship-models.js): Ultimate Spaceships pack by Quaternius, quaternius.com
+  (Striker, Dispatcher, Spitfire, Imperial, Pancake; textures resized to 1024 px)
+- metal_*.jpg: MetalPlates006 from ambientCG.com
+- rock_*.jpg: Rock063 from ambientCG.com
