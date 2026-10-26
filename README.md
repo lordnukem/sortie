@@ -184,14 +184,39 @@ The title screen offers **Continue · Wave N** whenever a save exists, with `Ent
 immediately. Running out of fighters ends the run and clears it — there is no continuing past a
 game over, which is the only thing keeping the lives count meaningful.
 
-**The board** (`sortie.board`) is ten rows of three characters. Ties go below the score already
+**The board** (`sortie.board`) is twenty rows of three characters. Ties go below the score already
 standing, so getting there first counts for something. A qualifying score opens a letter wheel
 on the debrief: up and down for a letter, left and right for a slot, `Enter`, Fire or `A` to
 confirm. Each slot is its own column of up / letter / down buttons, so a phone gets the same
 control as a keyboard with no second code path, and a keyboard can simply type the three
 letters. The last name entered is remembered (`sortie.name`) and pre-fills the wheel.
 
+The front page shows it as an attract loop: twenty rows creeping up through a window about nine
+rows tall, holding at each end so both are readable, and stopping entirely while a pointer is
+over it. That animation is timed off `performance.now()` rather than the frame `dt`, which is
+capped at 50 ms so the simulation cannot tunnel — using the capped value would make the board
+crawl on a slow renderer instead of merely stutter.
+
 The board is per-browser; there is no server behind it and no score leaves the machine.
+
+## Screens
+
+The front page is the board and the start menu, nothing else. Everything that used to live on it
+moved to two reading views:
+
+| | |
+|---|---|
+| `/sortie/` | leader board, Continue / New sortie |
+| `/sortie/#controls` | the full control table, keyboard / controller / touch |
+| `/sortie/#about` | threat board, how a sortie works, saving, credits |
+
+They are views rather than separate documents for one reason: the pause menu has to show the
+controls, and loading another page mid-run would end the run. Routing through the hash still
+gives each one a URL that can be opened or shared directly, and the back button works.
+
+The hash is only authoritative on the title screen. Opening the controls from the pause menu
+leaves it alone, so no amount of back-button pressing can drop a running sortie onto a different
+screen; `Esc` there returns to the pause screen rather than to the title.
 
 ## How it works
 

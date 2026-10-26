@@ -93,6 +93,30 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .slot.on .ch { color: var(--amber); border-bottom-color: var(--amber); }
 .spin { font-family: var(--mono); font-size: 13px; color: var(--hud); background: none; border: 1px solid var(--line); width: 48px; padding: 3px 0; cursor: pointer; }
 .spin:hover { background: rgba(143, 243, 255, 0.14); }
+/* The attract board: a fixed window the table creeps through, so twenty rows fit a screen that
+   only has room for about nine. The mask fades the rows entering and leaving rather than
+   cutting them off mid-glyph. */
+.board-scroll {
+  height: 252px; overflow: hidden; position: relative;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.board-scroll .board { will-change: transform; }
+@media (max-height: 780px) { .board-scroll { height: 168px; } }
+/* Three separate tables on the controls page, each sizing its own columns, came out ragged.
+   Fixing the proportions lines them up as one manual. */
+#controls .keys { table-layout: fixed; }
+#controls .keys th:first-child, #controls .keys td:first-child { width: 20%; }
+#controls .keys th:nth-child(2), #controls .keys td:nth-child(2) { width: 36%; }
+#controls .keys th:nth-child(3), #controls .keys td:nth-child(3) { width: 22%; }
+@media (max-width: 680px) { #controls .keys { table-layout: auto; } }
+.links { display: flex; gap: 20px; flex-wrap: wrap; }
+.link {
+  font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--hud); text-decoration: none; border-bottom: 1px solid transparent; padding-bottom: 2px;
+}
+.link:hover, .link:focus-visible { border-bottom-color: var(--hud); }
+.note .link { text-transform: none; letter-spacing: 0; font-family: inherit; font-size: inherit; border-bottom-color: var(--line); }
 .board { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 15px; }
 .board td { padding: 4px 0; border-bottom: 1px solid rgba(143, 243, 255, 0.08); color: var(--dim); }
 .board td.r { width: 2.5em; }
@@ -157,56 +181,115 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 
 <div class="overlay" id="title">
   <section class="brief">
-    <p class="eyebrow">Fleet Strike Command · Mission briefing</p>
+    <p class="eyebrow">Fleet Strike Command · Varan system</p>
     <h1 class="name">SORTIE!<span>Varan system</span></h1>
-    <p class="lede">The Swarm has jumped into the Varan system. Launch from the carrier <b>Halcyon</b>, break their attack formations before they reach the fleet, and keep clear of the Wardens: their tractor beams take fighters whole.</p>
-    <div class="cols">
-      <div class="panel">
-        <h2>Threat board</h2>
-        <table class="threats">
-          <tr><td><i class="sw" style="--c: var(--amber)"></i>Drone<span class="tag">Fast interceptor · 6 hits</span></td><td class="n">100</td></tr>
-          <tr><td><i class="sw" style="--c: var(--red)"></i>Lancer<span class="tag">Heavy fighter · 12 hits</span></td><td class="n">160</td></tr>
-          <tr><td><i class="sw" style="--c: var(--green)"></i>Warden<span class="tag">Tractor beam · 30 hits</span></td><td class="n">400</td></tr>
-          <tr><td><i class="sw" style="--c: var(--ink)"></i>Raider saucer<span class="tag">Fires in any direction</span></td><td class="n">1000</td></tr>
-          <tr><td><i class="sw" style="--c: #8a4dff"></i>Hive ship<span class="tag">Capital ship · 4 emitter pods, then the core</span></td><td class="n">6000</td></tr>
-          <tr><td><i class="sw" style="--c: var(--dim)"></i>Asteroid L / M / S<span class="tag">Splits when hit</span></td><td class="n">20·50·100</td></tr>
-        </table>
-      </div>
-      <div class="panel">
-        <h2>Flight controls</h2>
-        <div class="keys-wrap">
-          <table class="keys">
-            <tr><th></th><th>Keyboard &amp; mouse</th><th>Controller</th></tr>
-            <tr><td>Steer</td><td><kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> or mouse</td><td>Left stick</td></tr>
-            <tr><td>Roll</td><td><kbd>Q</kbd> <kbd>E</kbd></td><td>Right stick ↔</td></tr>
-            <tr><td>Throttle</td><td><kbd>[</kbd> <kbd>]</kbd> or wheel</td><td>Right stick ↕</td></tr>
-            <tr><td>Afterburner</td><td><kbd>Shift</kbd></td><td>LB</td></tr>
-            <tr><td>Lasers</td><td><kbd>Space</kbd> or left click</td><td>RT or A</td></tr>
-            <tr><td>Missile</td><td><kbd>F</kbd> or right click</td><td>LT or B</td></tr>
-            <tr><td>Target</td><td><kbd>T</kbd> nearest · <kbd>Tab</kbd> next · <kbd>R</kbd> attacker</td><td>X · Y · RB</td></tr>
-            <tr><td>Camera</td><td><kbd>C</kbd> chase or cockpit</td><td>Right stick click</td></tr>
-            <tr><td>Throttle cut</td><td><kbd>Backspace</kbd> idle · <kbd>\</kbd> full</td><td></td></tr>
-            <tr><td>Sound</td><td><kbd>M</kbd> all sound · <kbd>V</kbd> voice callouts</td><td></td></tr>
-            <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-    <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Stick forward dives, like a flight sim; press <b>I</b> (or controller Back) to swap. Hold a target in your sights to lock missiles. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> &mdash; up to three fly with you, and a hold-out's relief flight fills the formation.</p>
-    <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
-    <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
-    <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
-    <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later. Losing your last fighter ends the run and clears the save. Scores go on a <b>leader board</b> kept in this browser &mdash; three characters, arcade rules.</p>
+    <p class="lede">The Swarm has jumped the Varan system. Launch from the carrier <b>Halcyon</b> and break their attack formations before they reach the fleet.</p>
     <div class="panel" id="tBoardPanel" hidden>
       <h2>Gold leader board</h2>
-      <table class="board" id="tBoard"></table>
+      <div class="board-scroll" id="tBoardScroll"><table class="board" id="tBoard"></table></div>
     </div>
     <div class="actions">
       <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
       <p class="sub" id="startHint">Enter · controller Start or A</p>
     </div>
-    <p class="sub">Ship models: Quaternius Ultimate Spaceships · surface textures: ambientCG · both CC0</p>
+    <nav class="links">
+      <a class="link" href="#controls">Controls</a>
+      <a class="link" href="#about">About</a>
+    </nav>
+  </section>
+</div>
+
+<div class="overlay" id="controls" hidden>
+  <section class="brief">
+    <p class="eyebrow">Flight manual</p>
+    <h2 class="name">CONTROLS<span>Gold Leader</span></h2>
+    <div class="panel">
+      <h2>Flying</h2>
+      <div class="keys-wrap">
+        <table class="keys">
+          <tr><th></th><th>Keyboard &amp; mouse</th><th>Controller</th><th>Touch</th></tr>
+          <tr><td>Steer</td><td><kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> or mouse</td><td>Left stick</td><td>Left half of screen</td></tr>
+          <tr><td>Roll</td><td><kbd>Q</kbd> <kbd>E</kbd></td><td>Right stick ↔</td><td>⟲ ⟳</td></tr>
+          <tr><td>Throttle</td><td><kbd>[</kbd> <kbd>]</kbd> or wheel</td><td>Right stick ↕</td><td>THR slider</td></tr>
+          <tr><td>Afterburner</td><td><kbd>Shift</kbd></td><td>LB</td><td>BURN</td></tr>
+          <tr><td>Throttle cut</td><td><kbd>Backspace</kbd> idle · <kbd>\</kbd> full</td><td>—</td><td>—</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Fighting</h2>
+      <div class="keys-wrap">
+        <table class="keys">
+          <tr><th></th><th>Keyboard &amp; mouse</th><th>Controller</th><th>Touch</th></tr>
+          <tr><td>Lasers</td><td><kbd>Space</kbd> or left click</td><td>RT or A</td><td>FIRE</td></tr>
+          <tr><td>Missile</td><td><kbd>F</kbd> or right click</td><td>LT or B</td><td>MSL</td></tr>
+          <tr><td>Target</td><td><kbd>T</kbd> nearest · <kbd>Tab</kbd> next · <kbd>R</kbd> attacker</td><td>X · Y · RB</td><td>TGT · ATK</td></tr>
+        </table>
+      </div>
+      <p class="note">Hold a target in your sights to lock a missile. <kbd>R</kbd> picks whoever is shooting at you right now, which is usually the one worth turning on.</p>
+    </div>
+    <div class="panel">
+      <h2>Everything else</h2>
+      <div class="keys-wrap">
+        <table class="keys">
+          <tr><th></th><th>Keyboard &amp; mouse</th><th>Controller</th><th>Touch</th></tr>
+          <tr><td>Camera</td><td><kbd>C</kbd> chase or cockpit</td><td>Right stick click</td><td>VIEW</td></tr>
+          <tr><td>Invert pitch</td><td><kbd>I</kbd></td><td>Back</td><td>—</td></tr>
+          <tr><td>Sound</td><td><kbd>M</kbd> all · <kbd>V</kbd> voice callouts</td><td>—</td><td>—</td></tr>
+          <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td><td>PAUSE</td></tr>
+          <tr><td>Start · continue</td><td><kbd>Enter</kbd> · <kbd>N</kbd> for a new sortie</td><td>A · X</td><td>Buttons</td></tr>
+        </table>
+      </div>
+      <p class="note">The stick is <b>flight style</b> by default: pushing forward dives, as in a flight sim. Press <kbd>I</kbd> to swap it for arcade style, where forward climbs.</p>
+    </div>
+    <div class="actions">
+      <button class="launch" id="controlsBack" type="button">Back</button>
+      <p class="sub">Esc or Back</p>
+    </div>
+    <nav class="links"><a class="link" href="#about">About</a></nav>
+  </section>
+</div>
+
+<div class="overlay" id="about" hidden>
+  <section class="brief">
+    <p class="eyebrow">Mission briefing</p>
+    <h2 class="name">ABOUT<span>Sortie!</span></h2>
+    <p class="lede">The Swarm has jumped into the Varan system. Launch from the carrier <b>Halcyon</b>, break their attack formations before they reach the fleet, and keep clear of the Wardens: their tractor beams take fighters whole.</p>
+    <div class="panel">
+      <h2>Threat board</h2>
+      <table class="threats">
+        <tr><td><i class="sw" style="--c: var(--amber)"></i>Drone<span class="tag">Fast interceptor · 6 hits</span></td><td class="n">100</td></tr>
+        <tr><td><i class="sw" style="--c: var(--red)"></i>Lancer<span class="tag">Heavy fighter · 12 hits</span></td><td class="n">160</td></tr>
+        <tr><td><i class="sw" style="--c: var(--green)"></i>Warden<span class="tag">Tractor beam · 30 hits</span></td><td class="n">400</td></tr>
+        <tr><td><i class="sw" style="--c: var(--ink)"></i>Raider saucer<span class="tag">Fires in any direction</span></td><td class="n">1000</td></tr>
+        <tr><td><i class="sw" style="--c: #8a4dff"></i>Hive ship<span class="tag">Capital ship · 4 emitter pods, then the core</span></td><td class="n">6000</td></tr>
+        <tr><td><i class="sw" style="--c: #ff8a3d"></i>Swarm ace<span class="tag">Elite pilot · out-turns you · 3 phases</span></td><td class="n">8000</td></tr>
+        <tr><td><i class="sw" style="--c: var(--dim)"></i>Asteroid L / M / S<span class="tag">Splits when hit</span></td><td class="n">20·50·100</td></tr>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>The sortie</h2>
+      <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> &mdash; up to three fly with you, and a hold-out's relief flight fills the formation.</p>
+      <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
+      <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
+      <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
+    </div>
+    <div class="panel">
+      <h2>Saving and the board</h2>
+      <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later. Losing your last fighter ends the run and clears the save.</p>
+      <p class="note">Scores go on a <b>leader board</b> of twenty, three characters each. Both the save and the board live in this browser only — nothing leaves the machine, and clearing site data clears them.</p>
+    </div>
+    <div class="panel">
+      <h2>Built with</h2>
+      <p class="note">three.js, and nothing else at runtime. No build step and no server: one page plus generated assets is the whole game. Every sound, voice line and texture is synthesised rather than recorded — the <a class="link" href="https://github.com/lordnukem/sortie">source</a> explains how.</p>
+      <p class="sub">Ship models: Quaternius Ultimate Spaceships · surface textures: ambientCG · both CC0</p>
+    </div>
+    <div class="actions">
+      <button class="launch" id="aboutBack" type="button">Back</button>
+      <p class="sub">Esc or Back</p>
+    </div>
+    <nav class="links"><a class="link" href="#controls">Controls</a></nav>
   </section>
 </div>
 
@@ -215,7 +298,10 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <p class="eyebrow">Flight paused</p>
     <h2 class="name">HOLDING<span>POSITION</span></h2>
     <p class="note">Press P, Esc or controller Start to resume. Click the view afterwards to steer with the mouse again.</p>
-    <div class="actions"><button class="launch" id="resumeBtn" type="button">Resume</button></div>
+    <div class="actions">
+      <button class="launch" id="resumeBtn" type="button">Resume</button>
+      <button class="launch ghost" id="pauseControls" type="button">Controls</button>
+    </div>
   </section>
 </div>
 
@@ -2839,7 +2925,7 @@ const tagCounter = { drone: 0, lancer: 0, warden: 0, raider: 0 };
 // Everything persistent lives in this browser and nowhere else: a private window, cleared site
 // data or a different machine all start from nothing, so every read has to survive coming back
 // empty or throwing outright.
-const SAVE_KEY = 'sortie.run', BOARD_KEY = 'sortie.board', SAVE_V = 1, BOARD_MAX = 10;
+const SAVE_KEY = 'sortie.run', BOARD_KEY = 'sortie.board', SAVE_V = 1, BOARD_MAX = 20;
 function readJSON(key) {
   try { const t = localStorage.getItem(key); return t ? JSON.parse(t) : null; } catch { return null; }
 }
@@ -4243,6 +4329,34 @@ function continueGame(r) {
 // ---------------------------------------------------------------- the board
 // Ten rows, three characters each, the way a cabinet does it. `mine` is the row just posted, so
 // the player can find themselves without counting.
+// The front page's board creeps upward and loops, the way a cabinet cycles its high scores:
+// twenty rows in the space of about nine. It pauses at each end so both are readable, and
+// pauses entirely while a pointer is over it so a row can be read on purpose.
+const BOARD_SPEED = 22;   // px per second
+let boardY = 0, boardHold = 1.6, boardAtEnd = false, boardHover = false, boardLast = 0;
+// Deliberately not the frame dt: that is capped at 50 ms so the simulation cannot tunnel, which
+// means a slow renderer would make the board crawl rather than merely stutter. A UI animation
+// wants wall-clock time.
+function updateBoardScroll() {
+  if ($('title').hidden || $('tBoardPanel').hidden) { boardLast = 0; return; }
+  const now = performance.now() / 1000;
+  const dt = boardLast ? Math.min(now - boardLast, 0.25) : 0;
+  boardLast = now;
+  const wrap = $('tBoardScroll'), tbl = $('tBoard');
+  const span = tbl.scrollHeight - wrap.clientHeight;
+  if (span <= 1) { tbl.style.transform = ''; boardY = 0; return; }
+  if (!boardHover) {
+    if (boardHold > 0) boardHold -= dt;
+    else if (boardAtEnd) { boardY = 0; boardAtEnd = false; boardHold = 1.6; }
+    else {
+      boardY += dt * BOARD_SPEED;
+      if (boardY >= span) { boardY = span; boardAtEnd = true; boardHold = 2.4; }
+    }
+  }
+  tbl.style.transform = `translateY(${-boardY}px)`;
+}
+function resetBoardScroll() { boardY = 0; boardHold = 1.6; boardAtEnd = false; boardLast = 0; }
+
 function renderBoard(el, mine = -1) {
   const b = loadBoard();
   el.innerHTML = b.map((e, i) => `<tr class="${i === mine ? 'you' : ''}">
@@ -4353,6 +4467,43 @@ function onStart() {
   } else togglePause();
 }
 
+// ---------------------------------------------------------------- the reading views
+// Controls and About are full-screen views rather than separate documents, for one reason: the
+// pause menu has to show the controls without reloading, and a reload would end the run. Routing
+// them through the hash still gives each a URL that can be opened or shared directly.
+const VIEWS = ['controls', 'about'];
+let view = null;        // which reading view is open
+let viewFrom = 'title'; // where Back goes: the title, or the pause screen mid-run
+function openView(name, { hash = true } = {}) {
+  if (!VIEWS.includes(name)) return;
+  if (!view) viewFrom = state === 'title' ? 'title' : 'pause';
+  view = name;
+  for (const v of VIEWS) $(v).hidden = v !== name;
+  // Both are fixed full-screen layers and #pause sits later in the document, so the screen
+  // underneath has to be hidden rather than merely covered.
+  $(viewFrom).hidden = true;
+  if (hash && location.hash !== '#' + name) history.pushState(null, '', '#' + name);
+  $(name).scrollTop = 0;
+}
+function closeView({ hash = true } = {}) {
+  if (!view) return;
+  for (const v of VIEWS) $(v).hidden = true;
+  view = null;
+  $(viewFrom).hidden = false;
+  if (hash && location.hash) history.pushState(null, '', location.pathname + location.search);
+  if (viewFrom === 'title') refreshTitle();
+}
+// The hash is only authoritative on the title screen. Opening a view from the pause menu leaves
+// it alone, so the back button can never drop a running sortie into a different screen.
+function routeHash() {
+  if (state !== 'title' && !(view && viewFrom === 'title')) return;
+  const want = location.hash.replace('#', '');
+  if (VIEWS.includes(want)) openView(want, { hash: false });
+  else closeView({ hash: false });
+}
+window.addEventListener('hashchange', routeHash);
+window.addEventListener('popstate', routeHash);
+
 // The title screen reads the saved run every time it is shown, so quitting mid-run and coming
 // back offers the continue without a reload.
 function refreshTitle() {
@@ -4365,6 +4516,7 @@ function refreshTitle() {
     ? 'Enter or A continues · N or X starts a new sortie'
     : 'Enter · controller Start or A';
   $('tBoardPanel').hidden = renderBoard($('tBoard')) === 0;
+  resetBoardScroll();
 }
 
 // Title screen: a slow orbit of the carrier while a Drone flight patrols.
@@ -4493,9 +4645,14 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+  // A reading view is modal: it owns Escape and swallows the keys that would otherwise launch.
+  if (view) {
+    if (e.code === 'Escape' || e.code === 'Backspace' || e.code === 'Enter') closeView();
+    return;
+  }
   if (e.code === 'Enter') onStart();
   if (e.code === 'KeyN' && state === 'title' && assetsSettled) startGame();
-  if (e.code === 'KeyP' || (e.code === 'Escape' && !pointerLocked)) togglePause();
+  if (!view && (e.code === 'KeyP' || (e.code === 'Escape' && !pointerLocked))) togglePause();
   if (e.code === 'KeyM') comm('SYSTEM', sfx.toggle() ? 'Sound off.' : 'Sound on.', 'friend');
   if (e.code === 'KeyC') toggleView();
   if (e.code === 'KeyV') comm('SYSTEM', voice.toggle() ? 'Voice callouts on.' : 'Voice callouts off.', 'friend');
@@ -4620,6 +4777,14 @@ function updateTouchUI() {
 }
 
 $('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) startGame(); });
+$('controlsBack').addEventListener('click', () => closeView());
+$('aboutBack').addEventListener('click', () => closeView());
+$('pauseControls').addEventListener('click', () => openView('controls', { hash: false }));
+// Reading a row on purpose should not mean chasing it up the panel.
+for (const [ev, on] of [['pointerenter', true], ['pointerleave', false], ['pointerdown', true]]) {
+  $('tBoardScroll').addEventListener(ev, () => { boardHover = on; });
+}
+$('tBoardScroll').addEventListener('pointercancel', () => { boardHover = false; });
 $('continueBtn').addEventListener('click', () => {
   if (state !== 'title' || !assetsSettled) return;
   const r = loadRun();
@@ -4692,6 +4857,11 @@ function readInput(dt) {
       if (right && !padNav.right) moveEntry(1);
       if (edge(0) || edge(9)) confirmEntry();
       Object.assign(padNav, { up, down, left, right });
+      padPrev.set(gp.index, now);
+      continue;
+    }
+    if (view) {
+      if (edge(1) || edge(0) || edge(9)) closeView();
       padPrev.set(gp.index, now);
       continue;
     }
@@ -5364,8 +5534,10 @@ function frame() {
   drawHud();
   updateMfds();
   updateTouchUI();
+  updateBoardScroll();
 }
 refreshTitle();
+routeHash();   // a link straight to #controls or #about opens there
 frame();
 </script>
 
