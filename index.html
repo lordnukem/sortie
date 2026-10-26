@@ -4710,6 +4710,9 @@ function clearWorld() {
 }
 function startGame() {
   audioUnlock();
+  // A wheel left open would swallow every keypress in the next sortie: the keydown handler gives
+  // it the keyboard outright, so Space would confirm the last run's score instead of firing.
+  closeEntry();
   fullscreenOnLaunch();
   dropKey(SAVE_KEY);
   clearWorld();
@@ -4736,6 +4739,7 @@ function startGame() {
 // have started anyway.
 function continueGame(r) {
   audioUnlock();
+  closeEntry();
   fullscreenOnLaunch();
   clearWorld();
   score = r.score | 0; lives = Math.max(1, r.lives | 0); kills = r.kills | 0;
@@ -4846,6 +4850,9 @@ function openEntry(sc, wv) {
     ? `#${g + 1} on the global board — enter your name`
     : `#${l + 1} on this browser's board — enter your name`;
   $('dEntryPanel').hidden = false;
+  // Say what the big button will do, since it is the one most players reach for and it used to
+  // throw the score away silently.
+  $('againBtn').textContent = 'Save & fly again';
   drawEntry();
 }
 function spinEntry(slot, dir) {
@@ -4860,6 +4867,20 @@ function moveEntry(dir) {
   entry.cur = clamp(entry.cur + dir, 0, 2);
   drawEntry();
 }
+// Abandoning the wheel without posting. Only used when the run is being thrown away anyway --
+// every ordinary exit from the debrief confirms instead, because a score the player has already
+// put their name to should not be lost to pressing the wrong button.
+function closeEntry() {
+  entry = null;
+  $('dEntryPanel').hidden = true;
+  $('againBtn').textContent = 'Fly again';
+}
+// Leaving the debrief by any route at all: the button, Enter, the controller. The wheel is
+// pre-filled with the last name used, so there is always something valid to post.
+function leaveDebrief() {
+  if (entry) { confirmEntry(); return; }
+  if (performance.now() - overShown > 900) startGame();
+}
 function confirmEntry() {
   if (!entry) return;
   const name = entryName();
@@ -4868,8 +4889,7 @@ function confirmEntry() {
   // The local board is written first and unconditionally: the run happened whether or not the
   // network agrees, and the player should never lose a score to a timeout.
   const mine = postScore(name, sc, wv);
-  entry = null;
-  $('dEntryPanel').hidden = true;
+  closeEntry();
   $('dBoardPanel').hidden = renderBoard($('dBoard'), mine, null, { window: true }) === 0;
   $('dBoardWhich').textContent = 'This browser · sending…';
   sfx.rescued();
@@ -4914,8 +4934,7 @@ function gameOver() {
   $('dLogPanel').hidden = sortieLog.length === 0;
   $('dRank').textContent = score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer';
   // Name entry first if the score earned it; the board goes up either way, once there is one.
-  entry = null;
-  $('dEntryPanel').hidden = true;
+  closeEntry();
   const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
   // Either board is reason enough to ask for a name: a score can miss this browser's top twenty
   // and still make the global one, and the reverse is just as likely on a shared machine.
@@ -4953,6 +4972,7 @@ function saveAndQuit() {
   if (r) $('startHint').textContent = `Run saved — Continue resumes at wave ${r.wave}`;
 }
 function toTitle() {
+  closeEntry();
   clearWorld();
   state = 'title';
   paused = false;
@@ -4983,9 +5003,7 @@ function onStart() {
     const r = loadRun();
     if (r) continueGame(r); else startGame();
   } else if (state === 'over') {
-    // While the wheel is open, the confirm gesture belongs to it, not to flying again.
-    if (entry) { confirmEntry(); return; }
-    if (performance.now() - overShown > 900) startGame();
+    leaveDebrief();
   } else togglePause();
 }
 
@@ -5472,7 +5490,7 @@ $('dInitials').addEventListener('click', (e) => {
   const slot = e.target.closest('[data-slot]');
   if (slot) spinEntry(+slot.dataset.slot, 1);
 });
-$('againBtn').addEventListener('click', () => { if (state === 'over') startGame(); });
+$('againBtn').addEventListener('click', () => { if (state === 'over') leaveDebrief(); });
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 $('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
 $('pauseFull').addEventListener('click', () => toggleFullscreen());
