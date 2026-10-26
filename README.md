@@ -37,6 +37,7 @@ on the Pages URL but not over plain HTTP.
 | Invert pitch | `I` | Back | — |
 | Sound | `M` all · `V` voice callouts | — | — |
 | Pause | `P` or `Esc` | Start | PAUSE |
+| Save &amp; quit | pause menu button | — | pause menu button |
 | Continue a saved run | `Enter` on the title | A | Continue button |
 | Start a new sortie | `N` on the title | X | New sortie button |
 | Name entry | arrows, or type the letters · `Enter` | d-pad or stick · A | ▲ ▼ per slot · Confirm |
@@ -137,6 +138,15 @@ third abreast, because two ships on the same side at these speeds read as one co
 40 hull and its own callsign on the HUD, they pick their own targets when the player has none,
 and the Swarm will choose one of them over the player about 30% of the time.
 
+**The flight lasts one wave.** When the sector goes quiet everyone breaks off: a relief flight
+goes back on station, and a pilot pulled out of a Warden is flown home to the *Halcyon*, where
+they become a fighter you have not used yet — one more life, up to a ceiling of nine.
+
+That is the point of rescuing one. A rescued wingman who stayed for the rest of the sortie was
+worth more than a life and made the rescue the only thing in a wave worth doing; a wingman for
+this fight and a spare ship afterwards is a choice between two kinds of help rather than a
+strictly better one.
+
 ## The Warden
 
 The elite of the regular Swarm, and the one ship in an ordinary wave worth dealing with first.
@@ -223,6 +233,15 @@ The title screen offers **Continue · Wave N** whenever a save exists, with `Ent
 `A` taking it and `N` or `X` starting a new sortie instead. Starting a new one discards the save
 immediately. Running out of fighters ends the run and clears it — there is no continuing past a
 game over, which is the only thing keeping the lives count meaningful.
+
+The pause menu has a **Save & quit** button for leaving on purpose. It deliberately writes
+nothing new: the checkpoint it leaves on is the one written when the wave began, and the note
+above the button names that wave so the cost is stated before the click. Banking this wave's
+score while still replaying the wave would pay twice for the same kills — save at eleven of
+twelve, quit, continue, and the wave restarts with those eleven still counted.
+
+The flight is not in the save. A save is only ever written at the top of a wave, and the flight
+stands down at the end of the one before, so there is never anybody on the wing at that moment.
 
 **The board** (`sortie.board`) is twenty rows of three characters. Ties go below the score already
 standing, so getting there first counts for something. A qualifying score opens a letter wheel

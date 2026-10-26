@@ -147,6 +147,12 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   bottom: calc(env(safe-area-inset-bottom, 0px) + 218px); display: flex; gap: 14px;
 }
 .tb-roll .tb { width: 66px; height: 66px; font-size: 24px; letter-spacing: 0; }
+/* A landscape phone is short. Give the scanner room above the buttons rather than letting the
+   two fight over the same corner. */
+@media (max-height: 430px) {
+  .tb-roll { bottom: calc(env(safe-area-inset-bottom, 0px) + 208px); }
+  .tb-roll .tb { width: 54px; height: 54px; font-size: 20px; }
+}
 /* Latched auto-fire. The button stays lit with no finger on it, which is the whole point. */
 .tb.lock { background: rgba(255, 77, 94, 0.34); border-color: var(--red); color: var(--ink); }
 .tb-cluster { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 14px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: 210px; height: 190px; }
@@ -248,6 +254,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
           <tr><td>Invert pitch</td><td><kbd>I</kbd></td><td>Back</td><td>—</td></tr>
           <tr><td>Sound</td><td><kbd>M</kbd> all · <kbd>V</kbd> voice callouts</td><td>—</td><td>—</td></tr>
           <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td><td>PAUSE</td></tr>
+          <tr><td>Save &amp; quit</td><td colspan="3">A button on the pause menu. The run resumes at the start of the wave you left.</td></tr>
           <tr><td>Start · continue</td><td><kbd>Enter</kbd> · <kbd>N</kbd> for a new sortie</td><td>A · X</td><td>Buttons</td></tr>
         </table>
       </div>
@@ -282,7 +289,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     </div>
     <div class="panel">
       <h2>The sortie</h2>
-      <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> &mdash; up to three fly with you, and a hold-out's relief flight fills the formation.</p>
+      <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> for the rest of the wave, then flies home to the Halcyon as a <b>spare fighter</b>.</p>
       <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
       <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
       <p class="note">The field carries <b>space mines</b>. A mine sits dark and stays off the radar until something comes within about 45 units — then it lights up, starts broadcasting, and follows whatever woke it for a couple of seconds before going off. It does not care whose ship it touches, so a Lancer led across one is a Lancer dealt with. Shoot one from outside the blast and it is simply gone, and a blast sets off its neighbours.</p>
@@ -291,7 +298,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     </div>
     <div class="panel">
       <h2>Saving and the board</h2>
-      <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later. Losing your last fighter ends the run and clears the save.</p>
+      <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later, and the pause menu has a <b>Save &amp; quit</b> button for leaving on purpose. Either way you resume at the start of the wave you left. Losing your last fighter ends the run and clears the save.</p>
       <p class="note">Scores go on a <b>leader board</b> of twenty, three characters each. Both the save and the board live in this browser only — nothing leaves the machine, and clearing site data clears them.</p>
     </div>
     <div class="panel">
@@ -312,9 +319,11 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <p class="eyebrow">Flight paused</p>
     <h2 class="name">HOLDING<span>POSITION</span></h2>
     <p class="note">Press P, Esc or controller Start to resume. Click the view afterwards to steer with the mouse again.</p>
+    <p class="note" id="pauseSaveNote">The run is saved at the start of every wave, so leaving now costs you this wave and nothing else.</p>
     <div class="actions">
       <button class="launch" id="resumeBtn" type="button">Resume</button>
       <button class="launch ghost" id="pauseControls" type="button">Controls</button>
+      <button class="launch ghost" id="pauseQuit" type="button">Save &amp; quit</button>
     </div>
   </section>
 </div>
@@ -2979,7 +2988,8 @@ function saveRun() {
     v: SAVE_V, at: Date.now(), wave, score, lives, kills, shots, hits,
     rocks: rocksDestroyed, nextExtra, carryMissiles,
     hull: player.hull, shield: player.shield, missiles: player.missiles,
-    wings: wings.filter((w) => !w.dead).map((w) => ({ slot: w.slot, hp: w.hp })),
+    // No flight: it is checkpointed at the top of a wave and the flight stands down at the end
+    // of the one before, so there is never anybody on the wing at this moment.
     log: sortieLog,
   });
 }
@@ -3031,7 +3041,7 @@ function addScore(n) {
   score += n;
   if (score > hi) hi = score;
   if (score >= nextExtra) {
-    lives++;
+    lives = Math.min(LIVES_MAX, lives + 1);
     nextExtra += nextExtra === 20000 ? 50000 : 70000;
     comm('HALCYON', 'Replacement fighter authorised. One more ship in the hangar.', 'friend');
     voice.say(['extra-1', 'extra-2'], { key: 'extra', cooldown: 5 });
@@ -3341,7 +3351,7 @@ function killEnemy(e, credit) {
   explode(e.obj.position, e.d.color, e.r / 3.2, e.type === 'warden');
   if (player.capturing && player.capturing.w === e) releaseCapture();
   if (e.captive) {
-    if (wings.length < WING_MAX) spawnWingman(e.obj.position.clone());
+    if (wings.length < WING_MAX) spawnWingman(e.obj.position.clone(), false, -1, true);
     else { addScore(1000); comm('HALCYON', 'Rescue shuttle has the captured pilot. Nice shooting. +1000', 'friend'); }
   }
   if (e.type === 'boss') {
@@ -3449,6 +3459,37 @@ function relieve() {
   comm('HALCYON', 'Relief flight is on station. No further Swarm jumps detected — finish what is left out there.', 'friend');
   voice.say(['relief-1', 'relief-2'], { key: 'relief', cooldown: 4, urgent: true });
   sfx.rescued();
+}
+
+// At the end of a wave the flight breaks off: a relief flight goes back on station, and a pilot
+// pulled out of a Warden is flown back to the Halcyon, where they are a fighter you have not
+// used yet. That is the whole point of rescuing one -- a wingman for the rest of the sortie was
+// worth more than a life and made the rescue the only thing worth doing in a wave.
+const LIVES_MAX = 9;
+function dismissFlight() {
+  let home = 0;
+  for (const w of wings) {
+    if (w.dead) continue;
+    jumpFlash(w.obj.position);
+    if (w.rescued) home++;
+    scene.remove(w.obj);
+    disposeObj(w.obj);
+    w.dead = true;
+  }
+  wings = [];
+  if (!home) return;
+  const before = lives;
+  lives = Math.min(LIVES_MAX, lives + home);
+  const got = lives - before;
+  if (got > 0) {
+    showBanner(got > 1 ? `${got} PILOTS RECOVERED` : 'PILOT RECOVERED', got > 1 ? `+${got} fighters` : '+1 fighter', 3);
+    comm('HALCYON', got > 1
+      ? `${got} rescued pilots are back aboard. That is ${got} more fighters on the board.`
+      : 'The rescued pilot is back aboard the Halcyon. That is one more fighter on the board.', 'friend');
+    sfx.extra();
+  } else {
+    comm('HALCYON', 'Rescued pilot is back aboard. The deck is full.', 'friend');
+  }
 }
 
 // ---------------------------------------------------------------- the ace
@@ -3637,7 +3678,7 @@ const WING_LABEL = ['Gold Two', 'Gold Three', 'Gold Four'];
 // Right wing, left wing, and high trail. The third station is deliberately not a third abreast
 // position: two ships on the same side at these speeds read as one contact and trade paint.
 const WING_SLOT = [[18, 2, 12], [-18, 2, 12], [0, 14, 34]];
-function spawnWingman(pos, quiet = false, want = -1) {
+function spawnWingman(pos, quiet = false, want = -1, rescued = false) {
   if (wings.length >= WING_MAX) return null;
   const taken = wings.map((w) => w.slot);
   // A restored flight keeps the callsigns it had; everyone else takes the lowest free station.
@@ -3650,7 +3691,7 @@ function spawnWingman(pos, quiet = false, want = -1) {
   look.position.copy(pos);
   look.lookAt(player.rig.position);
   obj.quaternion.copy(look.quaternion);
-  const w = { obj, slot, name: WING_NAME[slot], label: WING_LABEL[slot], heading: look.quaternion.clone(), bank: 0, speed: 40, vel: V(), turn: 1.9, hp: WING_HP, r: 3, fireCd: 0, dead: false };
+  const w = { obj, slot, name: WING_NAME[slot], label: WING_LABEL[slot], rescued, heading: look.quaternion.clone(), bank: 0, speed: 40, vel: V(), turn: 1.9, hp: WING_HP, r: 3, fireCd: 0, dead: false };
   wings.push(w);
   // Relief ships announce themselves once, through relieve(); a rescued pilot speaks for itself.
   if (!quiet) {
@@ -4468,6 +4509,8 @@ function waveComplete() {
     objectives: objectives.map((o) => ({ label: o.label, done: o.done, got: o.got, need: o.need })),
   });
 
+  dismissFlight();
+
   showBanner(`WAVE ${wave} CLEAR`,
     perfect ? `All objectives · ×${mult.toFixed(1)} · +${bonus}` : `${met}/${objectives.length} objectives · ×${mult.toFixed(1)}`);
   comm('HALCYON', perfect
@@ -4570,11 +4613,6 @@ function continueGame(r) {
   overT = -1;
   $('title').hidden = true; $('over').hidden = true; $('pause').hidden = true;
   cockpit.visible = true;
-  // The flight re-forms with the hull it had, callsigns and all.
-  for (const w of (Array.isArray(r.wings) ? r.wings : []).slice().sort((a, b) => a.slot - b.slot)) {
-    const born = spawnWingman(LAUNCH_POS.clone().add(V(rand(-40, 40), rand(10, 30), rand(-40, 40))), true, w.slot | 0);
-    if (born) born.hp = clamp(w.hp | 0, 1, WING_HP);
-  }
   showBanner(`RESUMING WAVE ${r.wave}`, 'Gold Leader clear of the Halcyon', 2.6);
   comm('HALCYON', `Gold Leader, you are back on the board. Picking up at wave ${r.wave}.`, 'friend');
   setTimeout(() => voice.say(['launch-1', 'launch-2', 'launch-3'], { key: 'launch', cooldown: 1, urgent: true }), 450);
@@ -4705,7 +4743,50 @@ function togglePause() {
   if (state !== 'play') return;
   paused = !paused;
   $('pause').hidden = !paused;
-  if (paused) { document.exitPointerLock?.(); voice.stop(); }
+  if (paused) { document.exitPointerLock?.(); voice.stop(); refreshPauseNote(); }
+}
+// Says which wave a resume would actually land on, because that is the part a player cannot
+// guess: the checkpoint is the top of this wave, not this moment.
+function refreshPauseNote() {
+  const r = loadRun();
+  $('pauseSaveNote').textContent = r
+    ? `Saved at the start of wave ${r.wave}. Leaving now costs you this wave and nothing else.`
+    : 'The run is saved at the start of every wave.';
+}
+// Leaving on purpose. The checkpoint the run resumes from was written when the wave began, so
+// there is deliberately nothing to write here beyond the first-wave case where none exists yet:
+// banking this wave's score while still replaying the wave would pay twice for the same kills.
+function saveAndQuit() {
+  if (!loadRun()) saveRun();
+  toTitle();
+  const r = loadRun();
+  // The HUD is gone by now, so the confirmation goes where the player is already looking: the
+  // line under the Continue button, which also names the wave it will resume on.
+  if (r) $('startHint').textContent = `Run saved — Continue resumes at wave ${r.wave}`;
+}
+function toTitle() {
+  clearWorld();
+  state = 'title';
+  paused = false;
+  waveActive = false;
+  nextWaveT = -1;
+  overT = -1;
+  setAutoFire(false);
+  player.alive = false;
+  player.capturing = null;
+  player.beamBy = null;
+  // The title orbits the carrier and never calls updateCamera, so nothing else would take the
+  // fighter off the screen -- it would hang in space wherever the player left it.
+  player.rig.position.copy(LAUNCH_POS);
+  player.rig.quaternion.identity();
+  playerShip.visible = false;
+  cockpit.visible = false;
+  objectives = [];
+  document.exitPointerLock?.();
+  voice.stop();
+  $('pause').hidden = true; $('over').hidden = true; $('title').hidden = false;
+  setupTitle();
+  refreshTitle();
 }
 function onStart() {
   audioUnlock();
@@ -5057,6 +5138,17 @@ throttleEl.addEventListener('pointerdown', (e) => {
 throttleEl.addEventListener('pointermove', (e) => { if (throttleDrag) setThrottle(e); });
 for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) throttleEl.addEventListener(ev, () => { throttleDrag = false; });
 touchEl.addEventListener('contextmenu', (e) => e.preventDefault());
+// Where the roll buttons actually are, in CSS pixels. Read live rather than cached: it costs one
+// rect per frame and costs nothing to keep correct across a resize or an orientation change.
+// Returns 0 while the controls are hidden, which is the caller's signal to use its own default.
+let rollTopPx = 0;
+function touchRollTop() {
+  if (!touchEl.hidden) {
+    const el = touchEl.querySelector('.tb-roll');
+    if (el) rollTopPx = el.getBoundingClientRect().top;
+  }
+  return rollTopPx;
+}
 let touchShown = false;
 function updateTouchUI() {
   const show = isTouch && state === 'play' && !paused;
@@ -5089,6 +5181,7 @@ $('dInitials').addEventListener('click', (e) => {
 });
 $('againBtn').addEventListener('click', () => { if (state === 'over') startGame(); });
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
+$('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
 window.addEventListener('gamepadconnected', () => { padUsed = true; comm('SYSTEM', 'Controller connected.', 'friend'); });
 
 const dz = (v) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
@@ -5365,9 +5458,17 @@ function drawHud() {
   const py = narrow ? sy - R - ph - 16 : H - ph - 16;
   if (isTouch) {
     // Thumbs cover the bottom corners: the forward scanner moves top right, the panel sits between the thumbs.
+    // Where exactly depends on the roll buttons, which move with the screen height, so the scope
+    // is placed from their measured box rather than from a second guess about the same layout --
+    // the two drifted apart as soon as the roll buttons moved, and the scanner ended up under them.
     if (viewMode !== 'cockpit') {
-      const tr = Math.min(R, 40);
-      drawScope(c, W - 16 - tr - 6, 96 + tr, tr, true);
+      const rollTop = touchRollTop();
+      // Fit between the top margin and the buttons, shrinking rather than overlapping if the
+      // screen is too short for both. With no measurement yet, fall back to where it used to be.
+      const room = rollTop ? rollTop - 12 - 14 : 0;
+      const tr = rollTop ? clamp(Math.min(R, 40), 20, Math.max(20, room / 2)) : Math.min(R, 40);
+      const scy = rollTop ? Math.max(tr + 14, rollTop - 12 - tr) : 96 + tr;
+      drawScope(c, W - 16 - tr - 6, scy, tr, true);
       if (W >= 640) drawFlightPanel(c, R, sy, Math.min(pw, W - 560), ph, cx - Math.min(pw, W - 560) / 2, H - ph - 16, false);
     }
     if (H > W) {
@@ -5433,17 +5534,23 @@ function drawHud() {
   }
   c.textAlign = 'right';
   c.font = MONO(11); c.fillStyle = C.dim;
-  c.fillText('SHIPS', W - 16, 22);
-  c.fillText('KILLS', W - 16, 58);
+  // On a touch screen the scanner has the top right corner, so the tally moves to a second
+  // column beside the score and the flight list goes under it.
+  const tally = isTouch ? 124 : W - 16;
+  c.textAlign = isTouch ? 'left' : 'right';
+  c.font = MONO(11); c.fillStyle = C.dim;
+  c.fillText('SHIPS', tally, 22);
+  c.fillText('KILLS', tally, 58);
   c.font = MONO(20); c.fillStyle = C.ink;
-  c.fillText(String(Math.max(0, lives - (player.alive || player.capturing ? 1 : 0))), W - 16, 40);
+  c.fillText(String(Math.max(0, lives - (player.alive || player.capturing ? 1 : 0))), tally, 40);
   c.font = MONO(16);
-  c.fillText(String(kills), W - 16, 75);
+  c.fillText(String(kills), tally, 75);
   if (wings.length) {
     c.font = MONO(11); c.fillStyle = C.green;
-    let wy = 96;
-    for (const w of wings) { c.fillText(`${w.name} ${Math.round((w.hp / WING_HP) * 100)}%`, W - 16, wy); wy += 13; }
+    let wy = isTouch ? 98 : 96;
+    for (const w of wings) { c.fillText(`${w.name} ${Math.round((w.hp / WING_HP) * 100)}%`, tally, wy); wy += 13; }
   }
+  c.textAlign = 'right';
   if (hi > 0) { c.textAlign = 'center'; c.font = MONO(11); c.fillStyle = C.dim; c.fillText(`HIGH ${String(hi).padStart(6, '0')}`, cx, 22); }
 
   // The hold-out clock. It is the entire stage, and the player can do nothing to shorten it, so
