@@ -14,11 +14,10 @@ server-side code — one `index.html` plus generated assets is the whole thing.
 
 ## Play
 
-- **GitHub Pages:** https://lordnukem.github.io/sortie/
-- **VPS:** http://72.62.196.152/sortie/
+- **https://sortiethegame.com** — the game and the global leader board
+- **Mirror:** https://lordnukem.github.io/sortie/
 
-Needs a browser with WebGL2. Gamepad support requires HTTPS, so controllers work
-on the Pages URL but not over plain HTTP.
+Needs a browser with WebGL2. Gamepad support requires HTTPS, which both now have.
 
 ## Controls
 
@@ -253,9 +252,9 @@ with a link to swap. A score is offered a name if it would make *either* board: 
 browser's top twenty and still make the global one, and the reverse is just as likely on a
 shared machine.
 
-GitHub Pages is HTTPS and an HTTPS page may not fetch `http://` — there is no override for
-that — so the global board needs the API on HTTPS. The VPS copy reaches it same-origin either
-way.
+Both hosts reach the API over HTTPS: `sortiethegame.com` serves it same-origin, and the Pages
+mirror fetches `https://sortiethegame.com/api` cross-origin against an allow-list of exactly
+three origins.
 
 **The board** (`sortie.board`) is twenty rows of three characters. Ties go below the score already
 standing, so getting there first counts for something. A qualifying score opens a letter wheel

@@ -1,0 +1,11 @@
+[Unit]
+Description=Twice-daily Let's Encrypt renewal check
+
+[Timer]
+# Let's Encrypt asks for twice a day at a random minute, so every client does not knock at once.
+OnCalendar=*-*-* 03,15:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

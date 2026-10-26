@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew Let's Encrypt certificates
+Documentation=https://certbot.eff.org/
+
+[Service]
+Type=oneshot
+# Installed into /opt/certbot by pip, so there is no distribution timer to inherit.
+ExecStart=/opt/certbot/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"

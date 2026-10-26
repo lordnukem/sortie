@@ -3062,8 +3062,8 @@ function loadRun() {
 // IP, so the VPS copy works before the named host has a certificate. Everywhere else (GitHub
 // Pages above all) has to name the host, and that fetch only succeeds once TLS is in place:
 // an https page may not fetch http, and no browser offers a way round it.
-const API = ['sortie.questfor.ge', '72.62.196.152', '127.0.0.1', 'localhost'].includes(location.hostname)
-  ? '/api' : 'https://sortie.questfor.ge/api';
+const API = ['sortiethegame.com', 'www.sortiethegame.com', '72.62.196.152', '127.0.0.1', 'localhost'].includes(location.hostname)
+  ? '/api' : 'https://sortiethegame.com/api';
 let globalBoard = null;      // rows from the server, or null while unreachable
 let globalTried = false;
 let boardView = 'global';    // which one the title screen is showing

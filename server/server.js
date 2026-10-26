@@ -19,8 +19,8 @@ const GEO_ENABLED = process.env.GEO !== '0';
 
 const ORIGINS = new Set([
   'https://lordnukem.github.io',
-  'https://sortie.questfor.ge',
-  'http://sortie.questfor.ge',
+  'https://sortiethegame.com',
+  'https://www.sortiethegame.com',
   'http://72.62.196.152',
   'http://127.0.0.1:8777',
   'http://localhost:8777',
