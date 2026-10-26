@@ -140,7 +140,15 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .tb.on { background: rgba(143, 243, 255, 0.3); }
 .tb-top { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 32px); display: flex; gap: 10px; }
 .tb-top .tb { border-radius: 10px; width: 64px; height: 34px; }
-.tb-roll { position: fixed; left: calc(env(safe-area-inset-left, 0px) + 14px); top: 38%; display: flex; flex-direction: column; gap: 10px; }
+/* Roll lives on the right, above the action cluster, where the thumb already is: on the left it
+   sat inside the flight-stick half of the screen, so rolling meant letting go of the stick. */
+.tb-roll {
+  position: fixed; right: calc(env(safe-area-inset-right, 0px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 218px); display: flex; gap: 14px;
+}
+.tb-roll .tb { width: 66px; height: 66px; font-size: 24px; letter-spacing: 0; }
+/* Latched auto-fire. The button stays lit with no finger on it, which is the whole point. */
+.tb.lock { background: rgba(255, 77, 94, 0.34); border-color: var(--red); color: var(--ink); }
 .tb-cluster { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 14px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: 210px; height: 190px; }
 .tb-cluster .tb { position: absolute; }
 .tb-cluster .fire { right: 0; bottom: 0; }
@@ -166,8 +174,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <button class="tb" type="button" data-tap="pause">PAUSE</button>
   </div>
   <div class="tb-roll">
-    <button class="tb sm" type="button" data-hold="rollL" aria-label="Roll left">⟲</button>
-    <button class="tb sm" type="button" data-hold="rollR" aria-label="Roll right">⟳</button>
+    <button class="tb" type="button" data-hold="rollL" aria-label="Roll left">⟲</button>
+    <button class="tb" type="button" data-hold="rollR" aria-label="Roll right">⟳</button>
   </div>
   <div class="tb-throttle" id="throttle" aria-label="Throttle"><div class="fill" id="throttleFill"></div><span>THR</span></div>
   <div class="tb-cluster">
@@ -175,7 +183,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <button class="tb sm atk" type="button" data-tap="attacker" aria-label="Nearest attacker">ATK</button>
     <button class="tb md burn" type="button" data-hold="boost">BURN</button>
     <button class="tb md msl" type="button" data-tap="missile">MSL</button>
-    <button class="tb lg fire" type="button" data-hold="fire">FIRE</button>
+    <button class="tb lg fire" type="button" data-hold="fire" data-slide="auto">FIRE</button>
   </div>
 </div>
 
@@ -223,11 +231,13 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
         <table class="keys">
           <tr><th></th><th>Keyboard &amp; mouse</th><th>Controller</th><th>Touch</th></tr>
           <tr><td>Lasers</td><td><kbd>Space</kbd> or left click</td><td>RT or A</td><td>FIRE</td></tr>
+          <tr><td>Auto-fire</td><td>double-tap fire</td><td>double-tap RT or A</td><td>slide FIRE up</td></tr>
           <tr><td>Missile</td><td><kbd>F</kbd> or right click</td><td>LT or B</td><td>MSL</td></tr>
           <tr><td>Target</td><td><kbd>T</kbd> nearest · <kbd>Tab</kbd> next · <kbd>R</kbd> attacker</td><td>X · Y · RB</td><td>TGT · ATK</td></tr>
         </table>
       </div>
       <p class="note">Hold a target in your sights to lock a missile. <kbd>R</kbd> picks whoever is shooting at you right now, which is usually the one worth turning on.</p>
+      <p class="note"><b>Auto-fire</b> latches the trigger: two quick presses of any fire control lock it on, and a single press releases it. On a touch screen, slide the FIRE button upwards instead and take your finger off. <b>AUTO</b> appears beside the laser bar while it is held.</p>
     </div>
     <div class="panel">
       <h2>Everything else</h2>
@@ -261,11 +271,13 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <table class="threats">
         <tr><td><i class="sw" style="--c: var(--amber)"></i>Drone<span class="tag">Fast interceptor · 6 hits</span></td><td class="n">100</td></tr>
         <tr><td><i class="sw" style="--c: var(--red)"></i>Lancer<span class="tag">Heavy fighter · 12 hits</span></td><td class="n">160</td></tr>
-        <tr><td><i class="sw" style="--c: var(--green)"></i>Warden<span class="tag">Tractor beam · 30 hits</span></td><td class="n">400</td></tr>
+        <tr><td><i class="sw" style="--c: var(--green)"></i>Warden<span class="tag">Elite · tractor beam · 58 hits</span></td><td class="n">750</td></tr>
         <tr><td><i class="sw" style="--c: var(--ink)"></i>Raider saucer<span class="tag">Fires in any direction</span></td><td class="n">1000</td></tr>
         <tr><td><i class="sw" style="--c: #8a4dff"></i>Hive ship<span class="tag">Capital ship · 4 emitter pods, then the core</span></td><td class="n">6000</td></tr>
         <tr><td><i class="sw" style="--c: #ff8a3d"></i>Swarm ace<span class="tag">Elite pilot · out-turns you · 3 phases</span></td><td class="n">8000</td></tr>
         <tr><td><i class="sw" style="--c: var(--dim)"></i>Asteroid L / M / S<span class="tag">Splits when hit</span></td><td class="n">20·50·100</td></tr>
+        <tr><td><i class="sw" style="--c: var(--red)"></i>Space mine<span class="tag">Dark until something comes close · then it follows</span></td><td class="n">—</td></tr>
+        <tr><td><i class="sw" style="--c: var(--hud)"></i>Supply crate<span class="tag">Shield · hull · ordnance</span></td><td class="n">50</td></tr>
       </table>
     </div>
     <div class="panel">
@@ -273,6 +285,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> &mdash; up to three fly with you, and a hold-out's relief flight fills the formation.</p>
       <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
       <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
+      <p class="note">The field carries <b>space mines</b>. A mine sits dark and stays off the radar until something comes within about 45 units — then it lights up, starts broadcasting, and follows whatever woke it for a couple of seconds before going off. It does not care whose ship it touches, so a Lancer led across one is a Lancer dealt with. Shoot one from outside the blast and it is simply gone, and a blast sets off its neighbours.</p>
+      <p class="note"><b>Supply crates</b> restore shields or hull, or load two more missiles. They drift in the field, drop from Swarm wrecks — a Warden is worth about one in three — and are occasionally buried in an asteroid. What is inside leans towards whatever you are short of. Fly through one to take it.</p>
       <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
     </div>
     <div class="panel">
@@ -2323,7 +2337,11 @@ const BUILD = { drone: buildDrone, lancer: buildLancer, warden: buildWarden, rai
 const SHIPS = {
   drone:  { tag: 'DRONE',  plural: 'Drones',         hp: 6,  r: 3.2, speed: 34, turn: 1.15, fireRate: 0.55, dmg: 8,  pts: 100,  ptsForm: 50,  color: 0xffc531 },
   lancer: { tag: 'LANCER', plural: 'Lancers',        hp: 12, r: 4.0, speed: 30, turn: 1.0,  fireRate: 0.45, dmg: 13,  pts: 160,  ptsForm: 80,  color: 0xff3048 },
-  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 30, r: 6.5, speed: 24, turn: 0.75, fireRate: 0.9,  dmg: 17, pts: 400,  ptsForm: 150, color: 0x22e07a },
+  // The elite of the regular Swarm. It was a slow gun platform that happened to carry a tractor
+  // beam; now the beam is the threat and the hull is what makes you deal with it first. Roughly
+  // twice the armour, a beam it can bring to bear from further out and re-arm far sooner, and a
+  // grip that takes hold in about two thirds of the time.
+  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 58, r: 6.5, speed: 27, turn: 0.86, fireRate: 0.72, dmg: 20, pts: 750,  ptsForm: 260, color: 0x22e07a },
   raider: { tag: 'RAIDER', plural: 'raider saucers', hp: 9,  r: 4.2, speed: 28, turn: 1.0,  fireRate: 1.1,  dmg: 12,  pts: 1000, ptsForm: 1000, color: 0x9fffd0 },
   // The hive ship. `hp` is the CORE only -- the four pods are tracked separately and gate access
   // to it, so the real health pool is 4 x 35 + 80. It turns slowly enough to be out-flown, which
@@ -2905,17 +2923,26 @@ const fieldSize = (n, kind) => (kind === 'boss' ? 3 : Math.min(9, 4 + Math.floor
 // bodies and their fragments still wrapping around the fight.
 function clearField() {
   for (const k of rocks) if (k.field && !k.dead) { k.dead = true; scene.remove(k.obj); }
+  for (const m of mines) if (m.field && !m.dead) { m.dead = true; scene.remove(m.obj); disposeObj(m.obj); }
+  for (const p of pickups) if (p.field && !p.dead) { p.dead = true; scene.remove(p.obj); disposeObj(p.obj); }
 }
 
 // Seed a field around the player that drifts and wraps, so it is scenery, cover and a hazard
 // for the whole wave rather than something to be cleared.
 function spawnField(count) {
   const pp = player.rig.position;
+  const at = (lo, hi) => pp.clone().addScaledVector(V(rand(-1, 1), rand(-0.6, 0.6), rand(-1, 1)).normalize(), rand(lo, hi));
+  const drift = (sp) => V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(sp);
   for (let i = 0; i < count; i++) {
-    const dir = V(rand(-1, 1), rand(-0.6, 0.6), rand(-1, 1)).normalize();
-    spawnRock(3, pp.clone().addScaledVector(dir, rand(160, 430)),
-      V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(...ROCKS[3].speed)), true);
+    spawnRock(3, at(160, 430), drift(rand(...ROCKS[3].speed)), true);
   }
+  // Mines come with the rocks, not instead of them: the field is cover worth using and a reason
+  // to look where you are going, and it should be both at once.
+  const mineN = Math.min(7, 1 + Math.floor(count / 2));
+  for (let i = 0; i < mineN; i++) spawnMine(at(150, 420), drift(rand(1.5, 5)), true);
+  // And something to find in there.
+  const crates = 1 + Math.floor(count / 4);
+  for (let i = 0; i < crates; i++) spawnPickup(pickKind(), at(170, 400), drift(rand(1, 4)), true);
 }
 let banner = { text: '', sub: '', t: 0, life: 0 };
 let comms = [];
@@ -3175,7 +3202,7 @@ function updateEnemy(e, dt) {
       _ef.set(0, 0, 1).applyQuaternion(e.heading);
       _ed.copy(_ea).sub(pos).normalize();
       if (e.fireCd <= 0 && dist < 340 && _ef.dot(_ed) > 0.985) { enemyFire(e, _ea); e.fireCd = (e.d.fireRate * rand(0.8, 1.5)) / diff(); }
-      if (e.type === 'warden' && !e.captive && prey === PLAYER && e.beamCd <= 0 && dist < 125 && !player.capturing) {
+      if (e.type === 'warden' && !e.captive && prey === PLAYER && e.beamCd <= 0 && dist < 165 && !player.capturing) {
         e.state = 'beam'; e.beamT = 0; e.t = 0;
         sfx.beam();
         comm('HALCYON', `${e.name} is bringing its tractor beam to bear! Boost clear!`, 'warn');
@@ -3248,7 +3275,7 @@ function updateWardenBeam(e, dt) {
     _b2.set(0, 0, 1).applyQuaternion(e.heading);
     if (d < 150 && _b1.divideScalar(d).dot(_b2) > 0.983) player.beamBy = e;
   }
-  if (e.beamT > 5.5) { beam.visible = false; e.beamCd = rand(9, 14); beginBreak(e); }
+  if (e.beamT > 6.5) { beam.visible = false; e.beamCd = rand(4.5, 7.5); beginBreak(e); }
 }
 
 // Asteroids' saucer: drifts around its target and shoots in any direction.
@@ -3301,6 +3328,15 @@ function killEnemy(e, credit) {
   if (credit) {
     addScore(e.state === 'form' ? e.d.ptsForm : e.d.pts);
     kills++;
+  }
+  // What a wreck leaves behind, by how much trouble it was. A capital ship always drops two.
+  const DROP = { drone: 0.05, lancer: 0.08, warden: 0.3, raider: 0.3, ace: 1, capital: 1, boss: 1 };
+  const odds = DROP[e.type] ?? 0.05;
+  for (let i = 0; i < (odds >= 1 ? 2 : 1); i++) {
+    if (odds >= 1 || Math.random() < odds) {
+      spawnPickup(pickKind(), e.obj.position.clone().add(V(rand(-6, 6), rand(-6, 6), rand(-6, 6))),
+        V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(2, 6)), false);
+    }
   }
   explode(e.obj.position, e.d.color, e.r / 3.2, e.type === 'warden');
   if (player.capturing && player.capturing.w === e) releaseCapture();
@@ -3683,6 +3719,203 @@ function spawnRock(size, pos, vel, inField) {
   scene.add(obj);
   rockSpawns.push({ size, r: ROCKS[size].r, obj, vel, spin: V(rand(-0.6, 0.6), rand(-0.6, 0.6), rand(-0.6, 0.6)), dead: false, field: inField });
 }
+// ---------------------------------------------------------------- space mines
+// Swarm area denial, seeded through the asteroid field. A mine sits dark and cold: it is a dim
+// shape against dim rocks and it is not on the radar, so the first one is always a surprise.
+// Come inside its wake radius and it arms -- lights up, starts broadcasting, and follows you
+// just fast enough to matter before the fuse runs out. It does not care whose ship it touches.
+const MINE = {
+  r: 2.2, wake: 44, fuse: 2.3, blast: 36, chase: 19,
+  dmgPlayer: 34, dmgEnemy: 90, dmgWing: 26,
+};
+const MINE_DARK = shared(new THREE.MeshStandardMaterial({ color: 0x1b2230, roughness: 0.85, metalness: 0.6 }));
+const MINE_LIT = glow(5, 0.5, 0.7);
+const MINE_SPIKE = shared(new THREE.MeshStandardMaterial({ color: 0x2a3344, roughness: 0.7, metalness: 0.8 }));
+let mines = [];
+function buildMine() {
+  const g = new THREE.Group();
+  g.add(part(G.octa, MINE_DARK, 1, 1, 1));
+  // Six stubby horns, one down each axis -- the silhouette that says "do not touch" even unlit.
+  for (const [x, y, z] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    const sp = part(G.cyl, MINE_SPIKE, 0.13, 0.62, 0.13, x * 1.1, y * 1.1, z * 1.1);
+    if (x) sp.rotation.z = Math.PI / 2;
+    if (z) sp.rotation.x = Math.PI / 2;
+    g.add(sp);
+  }
+  const eye = part(G.sphere, MINE_LIT, 0.42, 0.42, 0.42);
+  eye.visible = false;
+  g.add(eye);
+  g.userData.eye = eye;
+  return g;
+}
+function spawnMine(pos, vel, inField) {
+  const obj = buildMine();
+  obj.scale.setScalar(MINE.r);
+  obj.position.copy(pos);
+  obj.quaternion.random();
+  scene.add(obj);
+  mines.push({ obj, vel, armed: false, fuse: MINE.fuse, blink: 0, dead: false, field: inField, target: null });
+}
+function detonateMine(m) {
+  if (m.dead) return;
+  m.dead = true;
+  const at = m.obj.position;
+  explode(at, 0xff4d5e, 1.5, true);
+  const md = at.distanceTo(player.rig.position);
+  sfx.boom(true, clamp(220 / (md + 40), 0.2, 1), panAt(at), md);
+  // One blast, everything inside it. A mine has no idea who laid it.
+  if (player.alive && player.inv <= 0 && md < MINE.blast) {
+    damagePlayer(MINE.dmgPlayer * (1 - 0.5 * (md / MINE.blast)), at);
+    shake = Math.max(shake, 1);
+  }
+  for (const e of enemies) {
+    if (e.dead || e.state === 'show') continue;
+    const d = e.obj.position.distanceTo(at);
+    if (d < MINE.blast + e.r) damageEnemy(e, MINE.dmgEnemy * (1 - 0.5 * (d / (MINE.blast + e.r))), true, at);
+  }
+  for (const w of wings) {
+    if (w.dead) continue;
+    if (w.obj.position.distanceTo(at) < MINE.blast) damageWingman(w, MINE.dmgWing);
+  }
+  for (const k of rocks) {
+    if (!k.dead && k.obj.position.distanceTo(at) < MINE.blast + k.r) splitRock(k, false);
+  }
+  scene.remove(m.obj);
+  disposeObj(m.obj);
+  // Chain reaction. `dead` is already set above, so a cluster unwinds itself and stops.
+  for (const o of mines) {
+    if (!o.dead && o.obj.position.distanceTo(at) < MINE.blast * 1.2) detonateMine(o);
+  }
+}
+// Anything with a hull counts as a trigger, so a mine is a weapon as much as a hazard: lead a
+// Lancer across one and it goes off in its face.
+function mineTrigger(m) {
+  const at = m.obj.position;
+  if (player.alive && player.inv <= 0 && at.distanceTo(player.rig.position) < MINE.wake) return PLAYER;
+  for (const e of enemies) {
+    if (!e.dead && e.state !== 'show' && at.distanceTo(e.obj.position) < MINE.wake) return e;
+  }
+  for (const w of wings) if (!w.dead && at.distanceTo(w.obj.position) < MINE.wake) return w;
+  return null;
+}
+const _mn = V();
+function updateMines(dt) {
+  const pp = player.rig.position;
+  for (const m of mines) {
+    if (m.dead) continue;
+    const at = m.obj.position;
+    if (!m.armed) {
+      const trig = mineTrigger(m);
+      if (trig) {
+        m.armed = true;
+        m.target = trig;
+        m.obj.userData.eye.visible = true;
+        const d = at.distanceTo(pp);
+        if (d < 320) sfx.lock(true);
+        if (d < 260) comm('HALCYON', 'Mine armed — break off!', 'warn');
+      }
+    } else {
+      m.fuse -= dt;
+      m.blink += dt;
+      // The warning is a pulse, not a steady light: a steady one reads as scenery, and the rate
+      // climbing as the fuse runs down is the only thing telling you how long you have.
+      const rate = 7 + 16 * (1 - m.fuse / MINE.fuse);
+      const lit = Math.sin(m.blink * rate) > -0.1;
+      m.obj.userData.eye.visible = lit;
+      m.obj.userData.eye.scale.setScalar(lit ? 0.42 + 0.22 * (1 - m.fuse / MINE.fuse) : 0.42);
+      const tgt = m.target && (m.target === PLAYER ? player.alive : !m.target.dead) ? m.target : null;
+      if (tgt) {
+        _mn.copy(tgt.obj.position).sub(at);
+        const d = _mn.length();
+        if (d > 0.01) at.addScaledVector(_mn.divideScalar(d), MINE.chase * dt);
+        if (d < MINE.r + 3.4) { detonateMine(m); continue; }
+      }
+      if (m.fuse <= 0) { detonateMine(m); continue; }
+    }
+    at.addScaledVector(m.vel, dt);
+    m.obj.rotation.y += dt * 0.5;
+    m.obj.rotation.x += dt * 0.3;
+    _mn.copy(at).sub(pp);
+    if (m.field) {
+      if (_mn.x > 450) at.x -= 900; else if (_mn.x < -450) at.x += 900;
+      if (_mn.y > 450) at.y -= 900; else if (_mn.y < -450) at.y += 900;
+      if (_mn.z > 450) at.z -= 900; else if (_mn.z < -450) at.z += 900;
+    } else if (_mn.lengthSq() > 1000 * 1000) { m.dead = true; scene.remove(m.obj); disposeObj(m.obj); }
+  }
+  mines = mines.filter((m) => !m.dead);
+}
+
+// ---------------------------------------------------------------- supply pickups
+// Three kinds, collected by flying through them. They come from three places -- Swarm wrecks,
+// asteroid debris, and sealed crates already drifting in the field -- so both pressing the
+// attack and working the rocks pay, which is the only reason to enter a field full of mines.
+const PICKUPS = {
+  shield: { label: 'SHIELD CELL', short: 'SHIELD +45', color: 0x8ff3ff, glow: glow(1.4, 4.2, 5) },
+  hull:   { label: 'HULL PATCH',  short: 'HULL +35',   color: 0x6dff9e, glow: glow(1.2, 4.6, 2.2) },
+  missile:{ label: 'ORDNANCE',    short: 'MISSILES +2', color: 0xffb547, glow: glow(5, 2.8, 0.8) },
+};
+const PICKUP_CASE = shared(new THREE.MeshStandardMaterial({ color: 0x18222f, roughness: 0.55, metalness: 0.7 }));
+const PICKUP_R = 11;
+let pickups = [];
+function spawnPickup(kind, pos, vel, inField) {
+  const d = PICKUPS[kind];
+  if (!d) return;
+  const obj = new THREE.Group();
+  obj.add(part(G.box, PICKUP_CASE, 1.5, 1.5, 1.5));
+  // A lit band around the crate, in the colour of what is inside: readable at a distance and in
+  // the corner of the eye, which is where it will usually be noticed.
+  obj.add(part(G.box, d.glow, 1.62, 0.42, 1.62));
+  obj.add(part(G.torus, d.glow, 1.5, 1.5, 1.5));
+  obj.position.copy(pos);
+  scene.add(obj);
+  pickups.push({ kind, obj, vel, t: 0, life: inField ? Infinity : 26, dead: false, field: inField });
+}
+// Weighted towards whatever the player is actually short of, so a crate is rarely a dud, but
+// never guaranteed: the weights are a thumb on the scale, not a vending machine.
+function pickKind() {
+  const w = {
+    shield: 0.5 + (100 - player.shield) / 100,
+    hull: 0.4 + ((100 - player.hull) / 100) * 1.6,
+    missile: 0.5 + clamp((6 - player.missiles) / 6, 0, 1) * 1.3,
+  };
+  const total = w.shield + w.hull + w.missile;
+  let r = Math.random() * total;
+  for (const k of ['shield', 'hull', 'missile']) { r -= w[k]; if (r <= 0) return k; }
+  return 'missile';
+}
+function collectPickup(p) {
+  p.dead = true;
+  const d = PICKUPS[p.kind];
+  if (p.kind === 'shield') player.shield = Math.min(100, player.shield + 45);
+  else if (p.kind === 'hull') player.hull = Math.min(100, player.hull + 35);
+  else player.missiles = Math.min(12, player.missiles + 2);
+  addScore(50);
+  showBanner(d.label, d.short, 1.6);
+  sfx.extra();
+  scene.remove(p.obj);
+  disposeObj(p.obj);
+}
+const _pk = V();
+function updatePickups(dt) {
+  const pp = player.rig.position;
+  for (const p of pickups) {
+    if (p.dead) continue;
+    p.t += dt;
+    p.life -= dt;
+    p.obj.position.addScaledVector(p.vel, dt);
+    p.obj.rotation.y += dt * 1.1;
+    p.obj.rotation.x += dt * 0.6;
+    _pk.copy(p.obj.position).sub(pp);
+    if (player.alive && _pk.length() < PICKUP_R) { collectPickup(p); continue; }
+    if (p.field) {
+      if (_pk.x > 450) p.obj.position.x -= 900; else if (_pk.x < -450) p.obj.position.x += 900;
+      if (_pk.y > 450) p.obj.position.y -= 900; else if (_pk.y < -450) p.obj.position.y += 900;
+      if (_pk.z > 450) p.obj.position.z -= 900; else if (_pk.z < -450) p.obj.position.z += 900;
+    } else if (p.life <= 0 || _pk.lengthSq() > 900 * 900) { p.dead = true; scene.remove(p.obj); disposeObj(p.obj); }
+  }
+  pickups = pickups.filter((p) => !p.dead);
+}
+
 // As in Asteroids: a large rock splits into two medium, a medium into two small.
 function splitRock(k, credit) {
   if (k.dead) return;
@@ -3690,7 +3923,9 @@ function splitRock(k, credit) {
   if (credit) {
     addScore(ROCKS[k.size].pts);
     rocksDestroyed++;
-
+    // Something was embedded in it. Rare enough that it reads as luck rather than as a reason to
+    // go rock-breaking instead of fighting.
+    if (Math.random() < 0.07) spawnPickup(pickKind(), k.obj.position.clone(), k.vel.clone().multiplyScalar(0.4), k.field);
   }
   explode(k.obj.position, 0xa89cc0, k.r / 6, false);
   const rkD = k.obj.position.distanceTo(player.rig.position);
@@ -3779,6 +4014,17 @@ function updateBolts(dt) {
       }
       if (b.dead) continue;
     }
+    // A mine takes any hit and goes off on the spot. Spotting one and shooting it from outside
+    // the blast is the whole counterplay, and it works for either side's fire.
+    for (const m of mines) {
+      if (!m.dead && segHit(b.prev, b.pos, m.obj.position, MINE.r + 1.6)) {
+        b.dead = true;
+        if (b.owner === 'player') hits++;
+        detonateMine(m);
+        break;
+      }
+    }
+    if (b.dead) continue;
     // Rocks stop every laser, friend or foe.
     for (const k of rocks) {
       if (!k.dead && segHit(b.prev, b.pos, k.obj.position, k.r)) {
@@ -4157,7 +4403,9 @@ function updateObjectives() {
     if (o.id !== 'fast') o.done = o.got >= o.need;
   }
 }
-const captureTime = () => 2.4 + 2.4 * (1 - diff());
+// How long the beam has to hold you before it has you. Shorter than it was: the escape is meant
+// to be a scramble you can lose, not a formality you ride out.
+const captureTime = () => 1.6 + 1.7 * (1 - diff());
 function startWave(n) {
   wave = n;
   waveT = 0;
@@ -4268,8 +4516,11 @@ function clearWorld() {
   for (const b of bolts) scene.remove(b.m);
   for (const s of missiles) scene.remove(s.m);
   for (const k of [...rocks, ...rockSpawns]) scene.remove(k.obj);
+  for (const m of mines) { scene.remove(m.obj); disposeObj(m.obj); }
+  for (const p of pickups) { scene.remove(p.obj); disposeObj(p.obj); }
   for (const w of wings) { scene.remove(w.obj); disposeObj(w.obj); }
   enemies = []; bolts = []; missiles = []; rocks = []; rockSpawns.length = 0; wings = [];
+  mines = []; pickups = [];
   spawnQueue = []; comms = []; holdout = null;
 }
 function startGame() {
@@ -4283,6 +4534,7 @@ function startGame() {
   state = 'play';
   paused = false;
   waveActive = false;
+  setAutoFire(false);
   nextWaveT = 3;
   overT = -1;
   $('title').hidden = true; $('over').hidden = true; $('pause').hidden = true;
@@ -4312,6 +4564,7 @@ function continueGame(r) {
   state = 'play';
   paused = false;
   waveActive = false;
+  setAutoFire(false);
   wave = r.wave - 1;             // updateFlow starts wave + 1 when the countdown runs out
   nextWaveT = 3;
   overT = -1;
@@ -4615,6 +4868,26 @@ const keys = new Set();
 const mouse = { x: 0, y: 0, active: false, fire: false, missileEdge: false, wheel: 0 };
 const touchStick = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
 let touchFire = false, pointerLocked = false, padUsed = false, lastPad = null;
+// Auto-fire: latched by a double tap of any fire control, or by sliding the touch FIRE button
+// up. Cancelled by a single press of any of them.
+const DOUBLE_TAP = 0.26;
+let autoFire = false, firePrev = false, fireTapT = -9;
+// Every fire control routes its press here rather than having readInput poll for an edge once a
+// frame. A flicked tap can be shorter than a frame, and polling would simply not see it; the
+// keyboard, mouse and touch all deliver real events, so only the gamepad has to be polled.
+function firePress() {
+  if (state !== 'play' || paused || view) return;
+  const now = performance.now() / 1000;
+  if (autoFire) setAutoFire(false);
+  else if (now - fireTapT < DOUBLE_TAP) setAutoFire(true);
+  fireTapT = now;
+}
+function setAutoFire(on) {
+  if (autoFire === on) return;
+  autoFire = on;
+  $('touch').querySelector('.fire').classList.toggle('lock', on);
+  sfx.lock(on);
+}
 const padPrev = new Map();
 // Direction latch for menu navigation, so a held stick steps once instead of spinning.
 const padNav = { up: false, down: false, left: false, right: false };
@@ -4661,6 +4934,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyT') targetNearest();
   if (e.code === 'Tab') cycleTarget();
   if (e.code === 'KeyR') targetNearest((t) => t.prey === PLAYER && (t.state === 'attack' || t.state === 'beam' || t.state === 'raid'));
+  if (e.code === 'Space' || e.code === 'ControlLeft') firePress();
   if (e.code === 'KeyF') fireMissile();
   if (e.code === 'Backspace') player.throttle = 0;
   if (e.code === 'Backslash') player.throttle = 1;
@@ -4676,7 +4950,7 @@ glCanvas.addEventListener('mousedown', (e) => {
   if (!pointerLocked && !isTouch) {
     try { glCanvas.requestPointerLock?.()?.catch?.(() => { /* not allowed here */ }); } catch { /* not allowed here */ }
   }
-  if (e.button === 0) mouse.fire = true;
+  if (e.button === 0) { mouse.fire = true; firePress(); }
   if (e.button === 2) fireMissile();
 });
 window.addEventListener('mouseup', (e) => { if (e.button === 0) mouse.fire = false; });
@@ -4731,16 +5005,30 @@ function touchAction(act) {
   else if (act === 'target') cycleTarget();
   else if (act === 'attacker') targetNearest(isAttacker);
 }
+const SLIDE_LOCK = 38;   // px of upward travel that counts as a deliberate slide, not a wobble
 for (const b of touchEl.querySelectorAll('[data-hold]')) {
   const k = b.dataset.hold;
+  const slides = b.dataset.slide === 'auto';
+  let originY = 0;
   const off = () => { touchUI[k] = false; b.classList.remove('on'); };
   b.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     audioUnlock();
+    originY = e.clientY;
+    if (k === 'fire') firePress();
     touchUI[k] = true;
     b.classList.add('on');
     try { b.setPointerCapture(e.pointerId); } catch { /* not supported */ }
   });
+  if (slides) {
+    b.addEventListener('pointermove', (e) => {
+      // Sliding up locks the trigger; the finger can then come off. A tap afterwards goes
+      // through the ordinary press path and releases it.
+      if (!touchUI[k] || autoFire || originY - e.clientY < SLIDE_LOCK) return;
+      setAutoFire(true);
+      off();
+    });
+  }
   b.addEventListener('pointerup', off);
   b.addEventListener('pointercancel', off);
   b.addEventListener('lostpointercapture', off);
@@ -4813,7 +5101,7 @@ function readInput(dt) {
   inp.roll += (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0);
   inp.throttleDelta += ((k.has('BracketRight') || k.has('Equal') ? 0.6 : 0) - (k.has('BracketLeft') || k.has('Minus') ? 0.6 : 0)) * dt + mouse.wheel;
   mouse.wheel = 0;
-  inp.fire = k.has('Space') || k.has('ControlLeft') || mouse.fire || touchFire;
+  let rawFire = k.has('Space') || k.has('ControlLeft') || mouse.fire || touchFire;
   inp.boost = k.has('ShiftLeft') || k.has('ShiftRight');
   if (mouse.active) {
     inp.yaw += mouse.x;
@@ -4822,7 +5110,7 @@ function readInput(dt) {
     mouse.x *= decay; mouse.y *= decay;
   }
   if (touchStick.id !== null) { inp.yaw += touchStick.x; inp.pitch -= touchStick.y; }
-  if (touchUI.fire) inp.fire = true;
+  if (touchUI.fire) rawFire = true;
   if (touchUI.boost) inp.boost = true;
   inp.roll += (touchUI.rollR ? 1 : 0) - (touchUI.rollL ? 1 : 0);
 
@@ -4838,7 +5126,10 @@ function readInput(dt) {
     inp.pitch += flightStyle ? ly : -ly;
     inp.roll += dz(gp.axes[2] || 0) + (now[15] ? 1 : 0) - (now[14] ? 1 : 0);
     inp.throttleDelta += (-dz(gp.axes[3] || 0) * 0.7 + (now[12] ? 0.6 : 0) - (now[13] ? 0.6 : 0)) * dt;
-    if ((gp.buttons[7]?.value || 0) > 0.25 || now[0]) inp.fire = true;
+    const padFire = (gp.buttons[7]?.value || 0) > 0.25 || now[0];
+    if (padFire) rawFire = true;
+    if (padFire && !firePrev) firePress();
+    firePrev = padFire;
     if (now[4]) inp.boost = true;
     if (edge(6) || edge(1)) inp.missile = true;
     if (state === 'play' && !paused) {
@@ -4873,6 +5164,8 @@ function readInput(dt) {
     if (gp.axes.some((a) => Math.abs(a) > 0.3) || now.some(Boolean)) { padUsed = true; mouse.active = pointerLocked && mouse.active; }
     padPrev.set(gp.index, now);
   }
+  inp.fire = rawFire || autoFire;
+
   inp.pitch = clamp(inp.pitch, -1, 1);
   inp.yaw = clamp(inp.yaw, -1, 1);
   inp.roll = clamp(inp.roll, -1, 1);
@@ -5359,7 +5652,7 @@ function updateMfds() {
   c.textBaseline = 'middle';
   bar(c, 14, 28, 228, 'SHLD', player.shield / 100, C.hud);
   bar(c, 14, 52, 228, 'HULL', player.hull / 100, player.hull > 60 ? C.green : player.hull > 30 ? C.amber : C.red);
-  bar(c, 14, 76, 228, 'LASR', player.energy / 100, C.ink);
+  bar(c, 14, 76, 228, autoFire ? 'AUTO' : 'LASR', player.energy / 100, autoFire ? C.red : C.ink);
   bar(c, 14, 100, 228, 'BURN', player.boost / 100, C.amber);
   c.textAlign = 'left';
   c.font = MONO(13); c.fillStyle = C.dim;
@@ -5391,7 +5684,7 @@ function drawFlightPanel(c, R, sy, pw, ph, px, py, scopes = true) {
   const hullCol = player.hull > 60 ? C.green : player.hull > 30 ? C.amber : C.red;
   bar(c, px + 10, py + 12, bw, 'SHLD', player.shield / 100, C.hud);
   bar(c, px + 10, py + 30, bw, 'HULL', player.hull / 100, hullCol);
-  bar(c, px + 10, py + 48, bw, 'LASR', player.energy / 100, C.ink);
+  bar(c, px + 10, py + 48, bw, autoFire ? 'AUTO' : 'LASR', player.energy / 100, autoFire ? C.red : C.ink);
   bar(c, px + 10, py + 66, bw, 'BURN', player.boost / 100, C.amber);
   const tx = px + pw - 76;
   c.fillStyle = 'rgba(143, 243, 255, 0.15)';
@@ -5452,6 +5745,10 @@ function drawScope(c, x, y, R, front) {
   blip(CARRIER_POS, '#5aa8ff', 6);
   for (const k of rocks) if (!k.dead) blip(k.obj.position, 'rgba(180, 170, 200, 0.8)', k.size + 1);
   for (const e of enemies) if (!e.dead && e.state !== 'show') blip(e.obj.position, e.type === 'raider' ? C.ink : C.red, 3.5, e === player.target);
+  // Dormant mines deliberately do not show: finding one the hard way is the point. The moment
+  // one arms it becomes the loudest thing on the scope.
+  for (const m of mines) if (!m.dead && m.armed) blip(m.obj.position, C.red, 4.5, true);
+  for (const p of pickups) if (!p.dead) blip(p.obj.position, PICKUPS[p.kind].color, 3);
   for (const w of wings) if (!w.dead) blip(w.obj.position, C.green, 3.5);
   for (const s of missiles) blip(s.pos, C.amber, 2.5);
   c.restore();
@@ -5486,6 +5783,8 @@ function update(dt) {
     rocks = rocks.filter((k) => { if (k.dead) scene.remove(k.obj); return !k.dead; });
     rocks.push(...rockSpawns);
     rockSpawns.length = 0;
+    updateMines(dt);
+    updatePickups(dt);
     updateLock(dt);
     if (state === 'play') updateFlow(dt);
   }

@@ -29,6 +29,7 @@ on the Pages URL but not over plain HTTP.
 | Throttle | `[` `]` or wheel | Right stick ↕ | THR slider |
 | Afterburner | `Shift` | LB | BURN |
 | Lasers | `Space` or left click | RT or A | FIRE |
+| Auto-fire | double-tap fire | double-tap RT or A | slide FIRE up |
 | Missile | `F` or right click | LT or B | MSL |
 | Target | `T` nearest · `Tab` next · `R` attacker | X · Y · RB | TGT · ATK |
 | Camera | `C` | Right stick click | VIEW |
@@ -96,6 +97,37 @@ Relief is a flight, not a ship. It tops the player's formation back up to three 
 and Four — each one arriving out of its own jump flash, so the number that jumps in is the number
 on the wing afterwards. Anyone who survived the hold-out is patched up at the same time.
 
+## Auto-fire
+
+Two presses of any fire control inside 260 ms latch the trigger on; a single press releases it.
+On a touch screen, slide the FIRE button upwards instead and take your finger off — the button
+stays lit with nothing on it, which is the whole point. The laser bar's label turns red and reads
+`AUTO` while it is held.
+
+The latch is decided in the input events themselves, not polled once a frame. A flicked tap can
+be shorter than a frame, and a polled rising edge would simply not see it; the keyboard, mouse
+and touch button all deliver real events, so only the gamepad trigger has to be polled.
+
+## The field
+
+Asteroids drift through every wave, and from the second wave on they bring two other things.
+
+**Space mines** sit dark and stay off the radar. Come within about 45 units — anyone, not just
+the player — and one arms: it lights up, starts broadcasting, and follows whatever woke it for
+2.3 seconds before going off. The blast is 36 units and it does not care whose ship it touches,
+so a Lancer led across a mine is a Lancer dealt with. A shot sets one off wherever it is, which
+makes popping them from outside the blast the whole counterplay, and a detonation sets off its
+neighbours, so a cluster unwinds itself.
+
+**Supply crates** restore 45 shield, 35 hull, or two missiles, and are collected by flying within
+11 units. They come from three places: sealed crates seeded in the field, Swarm wrecks (a Warden
+drops about one in three, a drone one in twenty, a capital ship always two), and occasionally an
+asteroid. What is inside leans towards whatever the player is short of — a thumb on the scale,
+not a vending machine, so it is never guaranteed.
+
+That combination is the point of the field: mines are the reason not to fly through it, and
+crates are the reason to anyway.
+
 ## Your flight
 
 Up to three fighters fly with the player, from two sources: a pilot freed by shooting down a
@@ -104,6 +136,14 @@ right wing, the left wing and high trail; that third station is above and behind
 third abreast, because two ships on the same side at these speeds read as one contact. Each has
 40 hull and its own callsign on the HUD, they pick their own targets when the player has none,
 and the Swarm will choose one of them over the player about 30% of the time.
+
+## The Warden
+
+The elite of the regular Swarm, and the one ship in an ordinary wave worth dealing with first.
+It used to be a slow gun platform that happened to carry a tractor beam; the beam is now the
+threat and the hull is what stops you ignoring it. 58 hull instead of 30, a beam it brings to
+bear from 165 units instead of 125 and re-arms in 4.5–7.5 seconds instead of 9–14, and a grip
+that takes hold in about two thirds of the time it used to. Worth 750.
 
 ## The ace
 
