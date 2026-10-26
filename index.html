@@ -137,6 +137,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .board td.sc { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 .board td.wv { text-align: right; width: 4.5em; }
 .board tr.you td { color: var(--amber); }
+/* The rows between the top of the board and the player's own place. */
+.board tr.gap td { color: rgba(131, 150, 171, 0.5); letter-spacing: 0.3em; border-bottom-style: dashed; }
 .board tr.you td.nm, .board tr.you td.sc { color: var(--amber); }
 
 /* Touch controls: shown only on touch screens while flying. The left half of the screen is the flight stick. */
@@ -3037,6 +3039,12 @@ const tagCounter = { drone: 0, lancer: 0, warden: 0, raider: 0 };
 // data or a different machine all start from nothing, so every read has to survive coming back
 // empty or throwing outright.
 const SAVE_KEY = 'sortie.run', BOARD_KEY = 'sortie.board', SAVE_V = 1, BOARD_MAX = 20;
+// The global board goes a hundred deep; this browser's own stays at twenty, because the local
+// board exists for when there is no network and nobody needs a hundred of their own runs.
+// BOARD_SHOW is how many go on the title screen at once: the attract loop creeps at 22 px a
+// second, so a hundred rows would take two minutes to come round, and the first twenty are the
+// only ones anyone reads anyway.
+const GLOBAL_KEEP = 100, BOARD_SHOW = 20;
 function readJSON(key) {
   try { const t = localStorage.getItem(key); return t ? JSON.parse(t) : null; } catch { return null; }
 }
@@ -3093,7 +3101,7 @@ let boardView = 'global';    // which one the title screen is showing
 async function fetchGlobal() {
   globalTried = true;
   try {
-    const res = await fetch(`${API}/scores?limit=${BOARD_MAX}`, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(`${API}/scores?limit=${GLOBAL_KEEP}`, { signal: AbortSignal.timeout(6000) });
     if (!res.ok) throw new Error(res.status);
     const j = await res.json();
     globalBoard = Array.isArray(j.board) ? j.board : null;
@@ -3151,7 +3159,7 @@ function globalRank(sc) {
   if (!globalBoard || sc <= 0) return -1;
   let i = 0;
   while (i < globalBoard.length && globalBoard[i].score >= sc) i++;
-  return i < BOARD_MAX ? i : -1;
+  return i < GLOBAL_KEEP ? i : -1;
 }
 function postScore(name, sc, wv) {
   const b = loadBoard();
@@ -4785,12 +4793,29 @@ function updateBoardScroll() {
 }
 function resetBoardScroll() { boardY = 0; boardHold = 1.6; boardAtEnd = false; boardLast = 0; }
 
-function renderBoard(el, mine = -1, rows = null) {
+function renderBoard(el, mine = -1, rows = null, opts = {}) {
   const b = rows || loadBoard();
-  el.innerHTML = b.map((e, i) => `<tr class="${i === mine ? 'you' : ''}">
-    <td class="r">${i + 1}</td><td class="nm">${esc(e.name)}</td>
-    <td class="sc">${(e.score | 0).toLocaleString()}</td><td class="wv">W${e.wave | 0}</td></tr>`).join('');
+  const list = opts.window ? boardWindow(b, mine) : b.slice(0, opts.limit || b.length).map((r, i) => ({ r, i }));
+  el.innerHTML = list.map((x) => (x.gap
+    ? '<tr class="gap"><td class="r">⋯</td><td class="nm"></td><td class="sc"></td><td class="wv"></td></tr>'
+    : `<tr class="${x.i === mine ? 'you' : ''}">
+      <td class="r">${x.i + 1}</td><td class="nm">${esc(x.r.name)}</td>
+      <td class="sc">${(x.r.score | 0).toLocaleString()}</td><td class="wv">W${x.r.wave | 0}</td></tr>`)).join('');
   return b.length;
+}
+// A hundred rows will not fit on a debrief card, and the rows that matter are the very top and
+// whichever handful the player landed among. Everything between becomes one ellipsis.
+function boardWindow(rows, mine, top = 5, around = 3) {
+  const all = rows.map((r, i) => ({ r, i }));
+  if (rows.length <= top + around * 2 + 2) return all;
+  const out = all.slice(0, top);
+  if (mine < 0) return out;                      // not on the board: the top is all there is to show
+  const lo = Math.max(top, mine - around), hi = Math.min(rows.length - 1, mine + around);
+  if (lo >= rows.length) return out;
+  if (lo > top) out.push({ gap: true });
+  out.push(...all.slice(lo, hi + 1));
+  if (hi < rows.length - 1) out.push({ gap: true });
+  return out;
 }
 // Board rows come off a public endpoint, so they are other people's text. Three characters that
 // passed the server's own check should be harmless, but the table is built by concatenation and
@@ -4845,14 +4870,14 @@ function confirmEntry() {
   const mine = postScore(name, sc, wv);
   entry = null;
   $('dEntryPanel').hidden = true;
-  $('dBoardPanel').hidden = renderBoard($('dBoard'), mine) === 0;
+  $('dBoardPanel').hidden = renderBoard($('dBoard'), mine, null, { window: true }) === 0;
   $('dBoardWhich').textContent = 'This browser · sending…';
   sfx.rescued();
   postGlobal(name, sc, wv).then((out) => {
     if (out.ok && globalBoard) {
       const at = globalBoard.findIndex((e) => e.name === name && e.score === sc);
-      renderBoard($('dBoard'), at, globalBoard);
-      $('dBoardWhich').textContent = `Global · you are #${out.rank}`;
+      renderBoard($('dBoard'), at, globalBoard, { window: true });
+      $('dBoardWhich').textContent = `Global · you are #${out.rank} of ${globalBoard.length}`;
     } else {
       $('dBoardWhich').textContent = out.why === 'offline'
         ? 'This browser · the global board could not be reached'
@@ -4897,7 +4922,7 @@ function gameOver() {
   if (boardRank(score) >= 0 || globalRank(score) >= 0) openEntry(score, wavesFlown);
   const showGlobal = globalBoard && globalBoard.length;
   $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
-  $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null) === 0;
+  $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
   $('over').hidden = false;
   overShown = performance.now();
 }
@@ -5105,11 +5130,12 @@ function drawTitleBoard() {
   refreshInstall();
   const useGlobal = boardView === 'global' && globalBoard && globalBoard.length;
   const rows = useGlobal ? globalBoard : loadBoard();
-  const n = renderBoard($('tBoard'), -1, rows);
+  const n = renderBoard($('tBoard'), -1, rows, { limit: BOARD_SHOW });
   $('tBoardPanel').hidden = n === 0 && boardView === 'local';
-  $('tBoardWhich').textContent = useGlobal ? 'Global'
+  const deep = n > BOARD_SHOW ? ` · top ${BOARD_SHOW} of ${n}` : '';
+  $('tBoardWhich').textContent = useGlobal ? `Global${deep}`
     : globalBoard === null && globalTried ? 'This browser · the global board is unreachable'
-    : 'This browser';
+    : `This browser${deep}`;
   $('tBoardSwap').hidden = !(globalBoard && globalBoard.length);
   $('tBoardSwap').textContent = useGlobal ? 'Show this browser' : 'Show global';
   if (n === 0) $('tBoard').innerHTML = '<tr><td class="r"></td><td class="nm">—</td><td class="sc">no scores yet</td><td class="wv"></td></tr>';

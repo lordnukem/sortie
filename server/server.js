@@ -14,7 +14,11 @@ const path = require('node:path');
 const PORT = Number(process.env.PORT || 8791);
 const HOST = process.env.HOST || '127.0.0.1';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'scores.db');
-const BOARD_MAX = 20;
+// How deep the global board goes. The table itself keeps every run for ever -- this is only
+// how far down the ranking is public. Returning all hundred at once is about 10 KB, so the
+// clients fetch the lot and decide for themselves how much to put on screen.
+const BOARD_KEEP = 100;
+const BOARD_PAGE = 20;   // the default slice when a caller does not ask for a depth
 const GEO_ENABLED = process.env.GEO !== '0';
 
 const ORIGINS = new Set([
@@ -172,7 +176,7 @@ function publicStats() {
     daily: db.prepare(`SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n
       FROM scores GROUP BY day ORDER BY day DESC LIMIT 60`).all(),
     board: db.prepare(`SELECT name, score, wave, seconds, created_at, country, cc
-      FROM scores ORDER BY score DESC, id ASC LIMIT ?`).all(BOARD_MAX),
+      FROM scores ORDER BY score DESC, id ASC LIMIT ?`).all(BOARD_KEEP),
   };
 }
 
@@ -288,7 +292,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/scores' && req.method === 'GET') {
     if (!allow('r:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
-    const limit = Math.min(BOARD_MAX, Math.max(1, int(url.searchParams.get('limit') || BOARD_MAX, 1, BOARD_MAX)));
+    const limit = Math.min(BOARD_KEEP, Math.max(1, int(url.searchParams.get('limit') || BOARD_PAGE, 1, BOARD_KEEP)));
     return send(res, 200, { board: topQ.all(limit) });
   }
 
@@ -320,7 +324,7 @@ const server = http.createServer(async (req, res) => {
       d.ua, d.os, d.browser, d.device,
       soft.length ? soft.join(',') : null,
     );
-    return send(res, 201, { rank: rankQ.get(r.score).n + 1, board: topQ.all(BOARD_MAX) });
+    return send(res, 201, { rank: rankQ.get(r.score).n + 1, board: topQ.all(BOARD_KEEP) });
   }
 
   if (url.pathname === '/api/stats' && req.method === 'GET') {

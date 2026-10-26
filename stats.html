@@ -32,10 +32,17 @@
   <div class="grid cols-2">
     <section class="panel">
       <h2>Gold leader board</h2>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="boardFilter" placeholder="Find a name or a country" aria-label="Filter the board" style="flex:1 1 200px">
+      </div>
       <div class="scroll"><table>
         <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Wave</th><th>Time</th><th>Country</th><th>When</th></tr></thead>
         <tbody id="board"></tbody>
       </table></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn ghost" id="boardMore" type="button" hidden>Show all</button>
+        <p class="sub" id="boardCount"></p>
+      </div>
     </section>
     <section class="panel">
       <h2>Countries</h2>
@@ -92,13 +99,36 @@
   }).filter(Boolean);
   drawMap($('map'), places);
 
-  $('board').innerHTML = (s.board || []).length
-    ? s.board.map((r, i) => `<tr>
-        <td class="n">${i + 1}</td><td class="nm">${esc(r.name)}</td>
-        <td class="n">${num(r.score)}</td><td class="n">${num(r.wave)}</td>
-        <td class="n">${dur(r.seconds)}</td><td>${esc(r.country || '—')}</td>
-        <td>${when(r.created_at)}</td></tr>`).join('')
-    : '<tr><td colspan="7" class="empty">No runs on the board yet. Be first.</td></tr>';
+  // A hundred rows is a lot of page. Ten to begin with, the rest on request, and a filter for
+  // when somebody is looking for one particular name rather than reading the board.
+  const PAGE = 10;
+  const all = s.board || [];
+  let expanded = false;
+  function drawBoard() {
+    const q = $('boardFilter').value.trim().toLowerCase();
+    // Ranks come from the full board, so filtering never renumbers anybody.
+    const ranked = all.map((r, i) => ({ r, i }));
+    const hits = q
+      ? ranked.filter(({ r }) => (r.name || '').toLowerCase().includes(q) || (r.country || '').toLowerCase().includes(q))
+      : ranked;
+    const shown = (q || expanded) ? hits : hits.slice(0, PAGE);
+    $('board').innerHTML = shown.length
+      ? shown.map(({ r, i }) => `<tr>
+          <td class="n">${i + 1}</td><td class="nm">${esc(r.name)}</td>
+          <td class="n">${num(r.score)}</td><td class="n">${num(r.wave)}</td>
+          <td class="n">${dur(r.seconds)}</td><td>${esc(r.country || '—')}</td>
+          <td>${when(r.created_at)}</td></tr>`).join('')
+      : `<tr><td colspan="7" class="empty">${all.length ? 'nothing matches' : 'No runs on the board yet. Be first.'}</td></tr>`;
+    const more = $('boardMore');
+    more.hidden = !!q || hits.length <= PAGE;
+    more.textContent = expanded ? `Show top ${PAGE}` : `Show all ${hits.length}`;
+    $('boardCount').textContent = all.length
+      ? (q ? `${hits.length} of ${all.length} shown` : `${shown.length} of ${all.length} shown`)
+      : '';
+  }
+  $('boardMore').addEventListener('click', () => { expanded = !expanded; drawBoard(); });
+  $('boardFilter').addEventListener('input', drawBoard);
+  drawBoard();
 
   drawBars($('countries'), s.countries, { empty: 'no locations recorded yet' });
   drawBars($('os'), s.os, { empty: 'nothing yet' });

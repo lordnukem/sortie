@@ -14,7 +14,7 @@ nginx-sortie.conf    the vhost (deployed to /etc/nginx/sites-available/sortie)
 | | |
 |---|---|
 | `GET /api/health` | liveness, and the row count |
-| `GET /api/scores?limit=20` | the board: name, score, wave, date, country |
+| `GET /api/scores?limit=20` | the board: name, score, wave, date, country. Default 20, maximum 100 |
 | `POST /api/scores` | submit a run |
 
 Only name, score, wave, date and country are ever served back. Everything else the service

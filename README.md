@@ -279,6 +279,18 @@ Both hosts reach the API over HTTPS: `sortiethegame.com` serves it same-origin, 
 mirror fetches `https://sortiethegame.com/api` cross-origin against an allow-list of exactly
 three origins.
 
+The global board is **a hundred deep**; this browser's local one stays at twenty, because it
+exists for when there is no network and nobody needs a hundred of their own runs. A hundred rows
+is more than any screen wants, so nowhere shows all of them at once:
+
+- the **title screen** shows the top twenty, which is as many as the attract loop can creep
+  through before it stops being an attract loop — a hundred rows at 22 px a second takes two
+  minutes to come round;
+- the **debrief** shows the top five, then an ellipsis, then your own place and the three
+  entries either side of it. Being told you came 47th is worth less than seeing who you beat;
+- the **records page** shows ten, expands to all hundred on request, and has a filter. Ranks
+  there come from the full board, so filtering never renumbers anybody.
+
 **The board** (`sortie.board`) is twenty rows of three characters. Ties go below the score already
 standing, so getting there first counts for something. A qualifying score opens a letter wheel
 on the debrief: up and down for a letter, left and right for a slot, `Enter`, Fire or `A` to
