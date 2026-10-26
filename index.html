@@ -186,7 +186,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .tb-throttle span { position: absolute; left: 0; right: 0; top: 6px; text-align: center; font: 600 9px var(--mono); color: var(--hud); letter-spacing: 0.06em; }
 </style>
 
-<canvas id="gl" aria-label="Cockpit view"></canvas>
+<canvas id="gl" role="application" aria-label="Sortie 3D space shooter game"></canvas>
 <canvas id="hud" aria-hidden="true"></canvas>
 
 <div class="touch" id="touch" hidden>
@@ -232,7 +232,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       </div>
     </div>
     <nav class="links">
-      <a class="link" href="#controls">Controls</a>
+      <a class="link" href="#controls" aria-expanded="false">Controls</a>
       <a class="link" href="#about">About</a>
       <a class="link" href="stats.html">Records</a>
     </nav>
