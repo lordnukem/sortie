@@ -195,6 +195,40 @@ keeps it under 0.83 across one to thirty-two.
 Player fire is deliberately not in the table. The gun's own rate of fire limits
 it, and the player's shot should never be the thing that gets dropped.
 
+### Distance
+
+Every positional call site scales level by range, so a far explosion is quieter.
+It used to be just as **bright** as a near one, and that is what made the world
+read as having no scale: high frequencies are lost over distance far faster than
+low ones, which is why thunder a mile off is a rumble and the same strike
+overhead is a crack.
+
+Each claimed voice now passes through one lowpass whose cutoff halves every 85
+units — 18 kHz up close, 8 kHz at 100, 1.6 kHz at 300, floored at 420 Hz. It is
+one filter on the whole voice rather than one per layer, for the same reason air
+absorption is applied to the finished mix in the offline renderer: per-layer, the
+low end dies first and leaves bright reverb on top, so the composite gets
+brighter as it fades. One filter per voice is only possible because an effect
+claims a single node, so this came free with the budget above.
+
+The reverb send is taken per layer, upstream of the filter, so a distant tail
+stays bright. That is the cost of keeping the send outside the voice, which is
+what lets a stolen voice ring on rather than click off.
+
+### One weapon, never the same shot twice
+
+The player's cannon is four layers, and only the top one used to vary. The body,
+the click and the thump were identical on every trigger pull, which at this rate
+of fire is the machine-gun tell. All four now move together: one pitch ratio
+drawn per shot, ±6%, applied coherently across the layers, with independent
+jitter on each layer's length and level.
+
+Coherence is the part that matters. Varying the layers independently stops
+reading as one weapon fired twice and starts reading as two different weapons —
+measured across six consecutive shots, the carrier moves between 2340 and 2564 Hz
+while the body and sub hold ratios of 0.521 and 0.0625 to four decimal places.
+Enemy fire gets the same treatment, a little wider.
+
 ### The thruster
 
 Noise is the signal; resonance is the character. Four band-limited noise layers (rumble, body,

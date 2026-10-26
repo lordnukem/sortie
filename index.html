@@ -494,7 +494,24 @@ const sfx = (() => {
   // new voice is refused outright. Only a voice old enough to be decaying gets stolen, which
   // is the case that matters: a fresh kill should still be heard over three dying rumbles.
   const SIBLING = 0.06;
-  function claim(group, bus, life) {
+  // Air absorption, the half of distance the game was missing. Every positional call site
+  // already scales level by range, so a far explosion is quieter -- but it is just as bright as
+  // one in your face, and that is what makes the world read as having no scale. High frequencies
+  // are lost over distance far faster than low ones, which is why thunder a mile off is a rumble
+  // and the same strike overhead is a crack.
+  //
+  // The offline renderer learned the shape of this the hard way: darkening each layer separately
+  // made the composite get *brighter* as it decayed, because the sub died first and left bright
+  // reverb on top. It only came right applied to the finished mix. Distance is the same problem
+  // with the same answer -- one filter on the whole voice, which is a place that only exists now
+  // that an effect claims a single node.
+  //
+  // The reverb send is taken per layer, upstream of this, so a distant tail stays bright. That is
+  // deliberate: the send sits outside the voice so a stolen voice keeps its tail. Call sites
+  // already pull `wet` down with range where it matters.
+  const AIR_HALF = 85;        // world units over which the top end halves
+  const air = (d) => clamp(18000 * Math.pow(0.5, d / AIR_HALF), 420, 18000);
+  function claim(group, bus, life, dist = 0) {
     if (!live()) return null;
     const list = voices[group];
     const now = ctx.currentTime;
@@ -504,12 +521,22 @@ const sfx = (() => {
     }
     const g = ctx.createGain();
     g.born = now;
-    g.connect(BUS[bus] || BUS.ui);
+    let end = g;
+    if (dist > 12) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 0.7;
+      lp.frequency.value = air(dist);
+      g.connect(lp);
+      end = lp;
+    }
+    end.connect(BUS[bus] || BUS.ui);
     list.push(g);
     setTimeout(() => {
       const i = list.indexOf(g);
       if (i >= 0) list.splice(i, 1);
       g.disconnect();
+      if (end !== g) end.disconnect();
     }, life * 1000 + 120);
     return g;
   }
@@ -581,20 +608,27 @@ const sfx = (() => {
     },
     // Cannon: a bright zap, a body tone, a transient click and a low thump, panned to the wing that fired.
     laser(pan = 0) {
-      tone({ f: 2400, f2: 260, d: 0.13, type: 'sawtooth', v: 0.045, pan, wet: 0.1, detune: rand(-30, 30), bus: 'wpn' });
-      tone({ f: 1250, f2: 180, d: 0.1, type: 'square', v: 0.02, pan, bus: 'wpn' });
-      hiss({ d: 0.04, v: 0.05, f: 7000, f2: 3000, type: 'highpass', pan, bus: 'wpn' });
-      tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan, bus: 'wpn' });
+      // Only the zap used to vary; the body, the click and the thump were identical every shot,
+      // which at this rate of fire is the machine-gun tell. The pitch jitter is *coherent* across
+      // the layers -- one ratio for all four -- because varying them independently stops reading
+      // as one weapon firing twice and starts reading as two different weapons.
+      const k = rand(0.94, 1.07);
+      const t = rand(0.92, 1.08);
+      tone({ f: 2400 * k, f2: 260 * k, d: 0.13 * t, type: 'sawtooth', v: 0.045 * rand(0.9, 1.1), pan, wet: 0.1, detune: rand(-30, 30), bus: 'wpn' });
+      tone({ f: 1250 * k, f2: 180 * k, d: 0.1 * t, type: 'square', v: 0.02 * rand(0.85, 1.15), pan, bus: 'wpn' });
+      hiss({ d: 0.04 * rand(0.8, 1.25), v: 0.05 * rand(0.85, 1.15), f: 7000 * rand(0.9, 1.1), f2: 3000, type: 'highpass', pan, bus: 'wpn' });
+      tone({ f: 150 * k, f2: 55 * k, d: 0.09 * t, type: 'sine', v: 0.07 * rand(0.9, 1.1), pan, bus: 'wpn' });
     },
-    enemyLaser(v = 1, pan = 0) {
-      const out = claim('shot', 'wpn', 0.18);
+    enemyLaser(v = 1, pan = 0, dist = 0) {
+      const out = claim('shot', 'wpn', 0.18, dist);
       if (out === false) return;
-      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25, bus: 'wpn', out });
-      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan, bus: 'wpn', out });
+      const k = rand(0.9, 1.11);
+      tone({ f: 760 * k, f2: 110 * k, d: 0.18 * rand(0.9, 1.1), type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25, bus: 'wpn', out });
+      tone({ f: 1500 * k, f2: 380 * k, d: 0.08, type: 'square', v: 0.015 * v, pan, bus: 'wpn', out });
     },
     // Carrier point-defence cannon: a short, dry, distant rattle.
-    pd(v = 1, pan = 0) {
-      const out = claim('shot', 'wpn', 0.06);
+    pd(v = 1, pan = 0, dist = 0) {
+      const out = claim('shot', 'wpn', 0.06, dist);
       if (out === false) return;
       tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25, bus: 'wpn', out });
       hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan, bus: 'wpn', out });
@@ -615,8 +649,8 @@ const sfx = (() => {
       if (ok) [0, 0.09, 0.18].forEach((delay) => tone({ f: 2093, d: 0.07, type: 'sine', v: 0.05, delay }));
       else tone({ f: 1318, d: 0.05, type: 'sine', v: 0.04 });
     },
-    hit(pan = 0, v = 1) {
-      const out = claim('hit', 'imp', 0.09);
+    hit(pan = 0, v = 1, dist = 0) {
+      const out = claim('hit', 'imp', 0.09, dist);
       if (out === false) return;
       tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan, bus: 'imp', out });
       hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan, bus: 'imp', out });
@@ -635,9 +669,9 @@ const sfx = (() => {
       tone({ f: 310, f2: 140, d: 0.35, type: 'square', v: 0.04, delay: 0.05, bus: 'imp' });
     },
     // Explosion: a sub drop, a broadband crack that darkens into rumble, then crackling debris, all into the reverb.
-    boom(big, v = 1, pan = 0) {
+    boom(big, v = 1, pan = 0, dist = 0) {
       const L = big ? 1.8 : 0.9;
-      const out = claim('blast', 'big', L + 0.4);
+      const out = claim('blast', 'big', L + 0.4, dist);
       if (out === false) return;
       if (samples.play(big ? 'boom-big' : 'boom-small', v, pan, 'big', out)) return;
       tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005, bus: 'big', out });
@@ -646,10 +680,10 @@ const sfx = (() => {
         hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4, bus: 'big', out });
       }
     },
-    rock(size, v = 1, pan = 0) {
+    rock(size, v = 1, pan = 0, dist = 0) {
       // Rocks share the explosion budget on purpose: a shattering field and a dying flight are
       // the same pile of broadband energy arriving on the same bus.
-      const out = claim('blast', 'big', 0.3 + size * 0.22 + 0.4);
+      const out = claim('blast', 'big', 0.3 + size * 0.22 + 0.4, dist);
       if (out === false) return;
       if (samples.play(`rock-${clamp(size, 1, 3)}`, v, pan, 'big', out)) return;
       hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true, bus: 'big', out });
@@ -2407,7 +2441,8 @@ function updateCarrier(dt) {
     _ta.sub(_tb).normalize();
     _ta.x += rand(-0.025, 0.025); _ta.y += rand(-0.025, 0.025); _ta.z += rand(-0.025, 0.025);
     spawnBolt(_tb, _ta.normalize(), 280, 'carrier', 1);
-    sfx.pd(clamp(160 / (_tb.distanceTo(camera.position) + 40), 0.05, 1), panAt(_tb));
+    const pdD = _tb.distanceTo(camera.position);
+    sfx.pd(clamp(160 / (pdD + 40), 0.05, 1), panAt(_tb), pdD);
   }
 }
 
@@ -2604,7 +2639,7 @@ function explode(pos, color, scale = 1, big = false) {
   const near = clamp((big ? 60 : 30) * scale / (dist + 10), 0, 1);
   shake = Math.max(shake, near);
   if (big && dist < 40) shock = 1;
-  sfx.boom(big, clamp(120 / (dist + 30), 0.15, 1), panAt(pos));
+  sfx.boom(big, clamp(120 / (dist + 30), 0.15, 1), panAt(pos), dist);
 }
 // A blue-white flash where a Swarm flight drops out of jump.
 function jumpFlash(pos) {
@@ -2971,7 +3006,7 @@ function updateRaider(e, dt, prey, hasPrey, dist) {
     e.fireCd = (e.d.fireRate * rand(0.8, 1.3)) / diff();
   }
   e.humT -= dt;
-  if (e.humT <= 0) { e.humT = 0.22; sfx.saucer(clamp(150 / (dist + 30), 0, 1), panAt(e.obj.position)); }
+  if (e.humT <= 0) { e.humT = 0.22; sfx.saucer(clamp(150 / (dist + 30), 0, 1), panAt(e.obj.position)); }   // uncapped, so no voice to filter
 }
 
 const _fo = V(), _fd = V();
@@ -2983,7 +3018,8 @@ function enemyFire(e, aim, anyDirection = false) {
   const spread = 0.02 + 0.05 * (1 - diff());
   _fd.x += rand(-spread, spread); _fd.y += rand(-spread, spread); _fd.z += rand(-spread, spread);
   spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
-  sfx.enemyLaser(clamp(90 / (_fo.distanceTo(player.rig.position) + 20), 0.08, 1), panAt(_fo));
+  const efD = _fo.distanceTo(player.rig.position);
+  sfx.enemyLaser(clamp(90 / (efD + 20), 0.08, 1), panAt(_fo), efD);
 }
 
 function damageEnemy(e, dmg, credit, at, podMult) {
@@ -2993,7 +3029,8 @@ function damageEnemy(e, dmg, credit, at, podMult) {
   e.flash = 0.1;
   if (at) for (let i = 0; i < 8; i++) emit(at, rand(-12, 12), rand(-12, 12), rand(-12, 12), _exc.setRGB(4, 3, 1.5), 0.35);
   if (e.hp <= 0) { killEnemy(e, credit); return; }
-  sfx.hit(panAt(e.obj.position), clamp(90 / (e.obj.position.distanceTo(player.rig.position) + 20), 0.2, 1));
+  const htD = e.obj.position.distanceTo(player.rig.position);
+  sfx.hit(panAt(e.obj.position), clamp(90 / (htD + 20), 0.2, 1), htD);
   if (e.state === 'form') { e.state = 'attack'; e.t = 0; pickPrey(e); }
 }
 
@@ -3100,7 +3137,7 @@ function damageBoss(e, dmg, credit, at, podMult) {
     // right tool here rather than a waste -- six missiles at 8 could not even kill one pod.
     best.hp -= dmg * (podMult || 1);
     e.flash = 0.1;
-    sfx.hit(panAt(best.world), 0.9);
+    sfx.hit(panAt(best.world), 0.9, best.world.distanceTo(player.rig.position));
     if (best.hp <= 0) killPod(e, best, credit);
     return;
   }
@@ -3140,7 +3177,8 @@ function updateBoss(e, dt) {
         _ba.copy(_bb).sub(g).normalize();
         _ba.x += rand(-0.03, 0.03); _ba.y += rand(-0.03, 0.03); _ba.z += rand(-0.03, 0.03);
         spawnBolt(g, _ba.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
-        sfx.enemyLaser(clamp(120 / (g.distanceTo(pp) + 20), 0.1, 1), panAt(g));
+        const gD = g.distanceTo(pp);
+      sfx.enemyLaser(clamp(120 / (gD + 20), 0.1, 1), panAt(g), gD);
       }
     }
   }
@@ -3238,7 +3276,8 @@ function splitRock(k, credit) {
     if (storm && k.storm) storm.destroyed++;
   }
   explode(k.obj.position, 0xa89cc0, k.r / 6, false);
-  sfx.rock(k.size, clamp(150 / (k.obj.position.distanceTo(player.rig.position) + 30), 0.15, 1), panAt(k.obj.position));
+  const rkD = k.obj.position.distanceTo(player.rig.position);
+  sfx.rock(k.size, clamp(150 / (rkD + 30), 0.15, 1), panAt(k.obj.position), rkD);
   if (k.size > 1) {
     for (let i = 0; i < 2; i++) {
       const sp = rand(...ROCKS[k.size - 1].speed);
