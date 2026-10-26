@@ -1,4 +1,5 @@
 {
- "_note": "Provenance for anything in assets/sfx/ that this project did not generate. ATTRIBUTION.md is built from this file by tools/import_sfx.py, and tools/sfx_render.py folds these names into the pack manifest, so a clip cannot ship uncredited or unlisted. Empty until an audition pick is confirmed.",
+ "_note": "Provenance for anything in assets/sfx/ that this project did not generate. ATTRIBUTION.md is built from this file by tools/import_sfx.py, and tools/sfx_render.py folds these names into the pack manifest, so a clip cannot ship uncredited or unlisted.",
+ "_verdict": "Empty on purpose. Sixteen CC0 candidates were auditioned against the four reward cues in October 2026 and the synthesis was preferred -- those cues are musical, in the score's own key and timbre, and a borrowed interface blip reads as coming from another application. See tools/README.md before auditioning again.",
  "clips": {}
 }

@@ -283,7 +283,10 @@ three sizes separate by grain band, not just by the thud.
 Sampled clips bypass the shared reverb, since each already carries its own tail.
 
 Nothing in `assets/` is recorded or borrowed, so the repository carries no
-third-party claim. Should that change, it goes through `tools/import_sfx.py`,
+third-party claim — and when royalty-free clips were auditioned against the four
+reward cues, the synthesis was preferred. Those cues are musical, pitched in the
+score's own key, which is the thing a borrowed library cannot match. Should that
+ever change, it goes through `tools/import_sfx.py`,
 which levels and trims an outside clip to the pack's standard and records its
 author, URL and licence in `tools/imported.json` — the file `ATTRIBUTION.md` is
 generated from, so credits cannot drift from the files. The licence bar is CC0 or
