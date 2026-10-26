@@ -38,26 +38,30 @@ on the Pages URL but not over plain HTTP.
 
 ## Stages
 
-Wave type is decided in one place, with the boss taking precedence where both divide:
+Every fifth wave is a boss. Everything else is a fight:
 
 | Wave | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| | fight | fight | storm | fight | **boss** | storm | fight | fight | storm | **boss** | fight | storm | fight | fight | **boss** |
+| | fight | fight | fight | fight | **hive** | fight | fight | fight | fight | **hold-out** | fight | fight | fight | fight | **ace** |
 
-`BOSS_EVERY` and `STORM_EVERY` are both single constants, because this is the balance most worth
-revisiting — dogfighting is the core of the game, and every boss or storm is a wave that is not
-one:
+That is **80% fights**, up from 53%. The asteroid storm used to take every third wave, which with
+bosses on top meant barely half of all waves were dogfights — and the storms, not the bosses,
+were the more frequent interruption. The rocks did not have to go to fix that; they only had to
+stop being a *stage*. A field now drifts through every wave as cover, as a collision hazard, and
+as a small bonus objective, and it is cleared and reseeded each wave so it never accumulates.
 
-| | fights | storms | bosses |
-|---|---|---|---|
-| boss 4, storm 3 | 6/12 = 50% | 3 | 3 |
-| **boss 5, storm 3** (current) | 8/15 = **53%** | 4 | 3 |
-| boss 6, storm 3 | 8/12 = 67% | 2 | 2 |
-| boss 5, storm 4 | 12/20 = 60% | 4 | 4 |
+A boss wave is one of three things, taken in turn, so each comes round every fifteen waves and
+none repeats back to back:
 
-Worth knowing: moving the boss from every 4th to every 5th only gains three points, because the
-**storms** are the more frequent interruption. If dogfighting still feels diluted, `STORM_EVERY`
-is the larger lever.
+| | What it is | How it ends |
+|---|---|---|
+| **hive ship** | A capital ship with four emitter pods. Positional, not a duel | Core destroyed |
+| **hold-out** | No boss at all. The Swarm simply keeps coming | Relief arrives, then clean up |
+| **ace** | One elite pilot that out-turns you and calls for help | Ace destroyed |
+
+From the second boss onward a **capital escort** arrives alongside whichever it is — the Warden
+model at five times scale, 70 units against a fighter's 5–14. It is the only enlarged asset in
+the game; Halcyon and the hive ship are both built from primitives.
 
 **Objectives are bonus only** — they cannot fail you, and the only way to lose is still to run
 out of fighters. Flat points would be ignored, though: next to a 10,000-point storm clear and an
@@ -66,14 +70,38 @@ objective met raises that wave's score **multiplier** (+0.5× each), and clearin
 loads two extra missiles for the next wave — a reward felt in the next fight rather than in a
 number.
 
-There is deliberately no "survive N seconds" objective. A survival timer rewards circling at
-maximum range until the clock runs out. The timed goal is *clear the wave inside N seconds*,
-which rewards pressing the attack. Reinforcement arrival is shown as a HUD countdown instead:
-information, not a goal.
+There is deliberately no "survive N seconds" objective **in a fight**. A survival timer there
+rewards circling at maximum range until the clock runs out. The timed goal is *clear the wave
+inside N seconds*, which rewards pressing the attack. The hold-out is the exception, and it works
+because there is nothing to circle away from: the Swarm keeps arriving wherever you go, and the
+pressure ramps with the clock rather than the wave number, so the last twenty seconds are the
+hardest part of the stage.
+
+The HUD used to label the next enemy flight `REINFORCEMENTS`, which is the word for the friendly
+arrival that ends a hold-out — one word for two opposite things. The enemy countdown is now
+`NEXT FLIGHT`.
+
+## The hold-out
+
+No boss ship, no health bar. Relief is 75 seconds out the first time and longer each time round,
+flights arrive every ~9 seconds at the start and every ~4 by the end, and the stage is over when
+Halcyon's relief flight jumps in and the spawning stops — not when something dies. It is the only
+stage whose clock the player cannot shorten, which is the whole point of it.
+
+## The ace
+
+One elite fighter: faster and tighter-turning than the player, so unlike everything else in the
+game it cannot be out-flown, only out-shot. Three times — at 65%, 40% and 20% hull — it breaks
+off, calls escorts (4, then 3, then 2) and patches itself up while they live.
+
+It recovers at most **25%, 15% and 8%** of its maximum, decreasing each phase, so progress is
+always forward even when a phase goes badly. The heal stops the instant the last escort dies,
+which is what makes the escorts the actual objective rather than a distraction: clear them fast
+and the ace gets almost nothing, ignore them and it takes its full allowance back.
 
 ## The hive ship
 
-A procedural capital ship, ~63 units long against a fighter's 5–14, on every 4th wave. Four
+A procedural capital ship, ~63 units long against a fighter's 5–14. Four
 emitter pods sit on four different faces — dorsal, ventral, port, starboard — so there is no
 approach from which two can be hit. **Hull fire does nothing while the pods are up**, and the
 player sees sparks with no damage so they do not mistake it for a large health bar.
@@ -89,6 +117,29 @@ Each boss is tougher than the last via `bossTier()`, because `diff()` flattens a
 its own, the second and third capital ships would be identical to the first.
 
 ## Taking damage
+
+The screen flashed on a hit — red for hull, cyan for shields — which says *that* you were hit and
+never from where, so the right response to being shot was to guess. An arc now appears around the
+gunsight at the attacker's bearing, cyan while the shields are holding and red once they are not,
+so the colour answers "how bad" at the same time as the position answers "from where".
+
+The bearing is taken in the cockpit's own frame, so the marker rolls with the world rather than
+with the instrument. The screen plane alone is not enough — it has no depth, so a shot from dead
+ahead and a shot from dead astern both collapse to straight up, and astern is the one that
+matters. Reflecting the angle when the source is behind folds the rear hemisphere into the bottom
+of the ring: a bandit at your six reads as six.
+
+### Tractor beams
+
+Breaking a Warden's beam used to be one button — hold the afterburner and it barely held you,
+whatever direction you were facing. The afterburner is now necessary but not sufficient: thrust
+has to be pointed **out** of the beam. Nose straight out under boost and you win comfortably;
+boost while still facing the emitter and you are only slowing the inevitable. Fighting it also
+burns reserve, so a second grab shortly after the first is genuinely worse. The cone reaches a
+little further and grabs a little wider than it did, so being caught is more common — escaping
+is the part that got harder, not avoiding it.
+
+### Collisions
 
 Ramming used to be the efficient play: a flat 30 damage destroyed anything outright, so a full
 health bar was worth roughly seven free kills. Collision damage now scales with what you hit
