@@ -363,6 +363,23 @@ gzip matters here: `assets/ship-models.js` is 1,021 KB raw and 357 KB compressed
 That caching split is not cosmetic — a cached page masked a live change during
 testing and reported the old audio graph as though the edit had not applied.
 
+## The icon
+
+`assets/icon/` is a tailless delta interceptor in the hive ship's violet with the
+engine cyan, drawn as pixel art by Imagen through `agy` and then cleaned up for
+use as an icon. Two things had to be undone: the generator bakes in a black
+background and draws a grid over it, and it writes JPEG.
+
+Keying the background on brightness does not work, because the hull's dark violet
+sits in the same luma band as the background and a threshold eats the ship. The
+background is connected, though, and the grid lines are drawn on it — so a flood
+fill from the border removes both and leaves every dark pixel enclosed by the
+ship alone.
+
+It is also only pixel-art *styled*: measured edge spacing clusters at 14–15 px on
+a 1024 px image, so there is no exact cell to snap to and the sizes are resampled
+rather than quantised.
+
 ## Credits
 
 Third-party assets are all **CC0 1.0 (public domain)** — see
