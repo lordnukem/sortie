@@ -4,9 +4,10 @@ A first-person space combat game that runs entirely in the browser. Launch from
 the carrier *Halcyon*, break the Swarm's attack formations before they reach the
 fleet, and stay out of the Wardens' tractor beams.
 
-Waves alternate between strike groups, asteroid storms and a capital-ship boss.
-Each stage states its own objectives, pays a score multiplier for meeting them,
-and debriefs you afterwards.
+Most waves are a dogfight against a Swarm strike group; every fifth is one of
+three bosses. Each stage states its own objectives, pays a score multiplier for
+meeting them, and debriefs you afterwards. The run is saved between waves and
+scores go on a local leader board.
 
 Built with [three.js](https://threejs.org/). No build step, no bundler, no
 server-side code — one `index.html` plus generated assets is the whole thing.
@@ -35,6 +36,9 @@ on the Pages URL but not over plain HTTP.
 | Invert pitch | `I` | Back | — |
 | Sound | `M` all · `V` voice callouts | — | — |
 | Pause | `P` or `Esc` | Start | PAUSE |
+| Continue a saved run | `Enter` on the title | A | Continue button |
+| Start a new sortie | `N` on the title | X | New sortie button |
+| Name entry | arrows, or type the letters · `Enter` | d-pad or stick · A | ▲ ▼ per slot · Confirm |
 
 ## Stages
 
@@ -160,6 +164,34 @@ health bar was worth roughly seven free kills. Collision damage now scales with 
 and keeps flying, the capital ship does not notice. Enemy fire also scales past `diff()`'s
 wave-7 ceiling via `threat()`, so a drone needs 19 hits to strip a full bar at wave 7 and 13 by
 wave 20, where before it was 33 forever.
+
+## Saving, and the board
+
+Both live in this browser's `localStorage` and nowhere else: a different machine, a private
+window or cleared site data all start from nothing. Every read is wrapped, because any of them
+can come back empty or throw outright.
+
+**The run** (`sortie.run`) is checkpointed at the top of each wave — the one moment the whole
+game is a handful of numbers, with no enemies in flight, no bolts and no asteroid field worth
+keeping. It stores the score, lives, kills, shots and hits, the hull, shield and missile load,
+each surviving wingman's station and hull, and the stage-by-stage log. Continuing therefore
+replays the wave you were on rather than the second you stopped: a lost dogfight costs that
+wave, never the run. Resuming reuses the ordinary between-wave countdown, so the saved wave
+starts the way it would have started anyway.
+
+The title screen offers **Continue · Wave N** whenever a save exists, with `Enter` or controller
+`A` taking it and `N` or `X` starting a new sortie instead. Starting a new one discards the save
+immediately. Running out of fighters ends the run and clears it — there is no continuing past a
+game over, which is the only thing keeping the lives count meaningful.
+
+**The board** (`sortie.board`) is ten rows of three characters. Ties go below the score already
+standing, so getting there first counts for something. A qualifying score opens a letter wheel
+on the debrief: up and down for a letter, left and right for a slot, `Enter`, Fire or `A` to
+confirm. Each slot is its own column of up / letter / down buttons, so a phone gets the same
+control as a keyboard with no second code path, and a keyboard can simply type the three
+letters. The last name entered is remembered (`sortie.name`) and pre-fills the wheel.
+
+The board is per-browser; there is no server behind it and no score leaves the machine.
 
 ## How it works
 

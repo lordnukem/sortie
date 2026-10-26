@@ -78,6 +78,29 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .stats dt { align-self: center; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
 .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
 .rank { margin: 0; font-size: 22px; font-weight: 600; color: var(--amber); letter-spacing: 0.06em; }
+/* The filled Launch button is a clipped parallelogram; a bordered one would have its border
+   sliced off at both ends, so the ghost variant squares up. */
+.launch.ghost { color: var(--hud); background: none; border: 1px solid var(--line); padding: 13px 28px; clip-path: none; margin-left: 10px; }
+.launch.ghost:hover { color: var(--void); background: var(--hud); }
+/* The initials wheel. Each slot is its own column of up / letter / down so that a touch screen
+   gets real tap targets without a second code path. */
+.initials { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.slot .ch {
+  font-family: var(--mono); font-size: 38px; line-height: 1.1; width: 48px; text-align: center;
+  color: var(--dim); border-bottom: 2px solid var(--line); cursor: pointer;
+}
+.slot.on .ch { color: var(--amber); border-bottom-color: var(--amber); }
+.spin { font-family: var(--mono); font-size: 13px; color: var(--hud); background: none; border: 1px solid var(--line); width: 48px; padding: 3px 0; cursor: pointer; }
+.spin:hover { background: rgba(143, 243, 255, 0.14); }
+.board { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 15px; }
+.board td { padding: 4px 0; border-bottom: 1px solid rgba(143, 243, 255, 0.08); color: var(--dim); }
+.board td.r { width: 2.5em; }
+.board td.nm { color: var(--ink); letter-spacing: 0.18em; }
+.board td.sc { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.board td.wv { text-align: right; width: 4.5em; }
+.board tr.you td { color: var(--amber); }
+.board tr.you td.nm, .board tr.you td.sc { color: var(--amber); }
 
 /* Touch controls: shown only on touch screens while flying. The left half of the screen is the flight stick. */
 .touch { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
@@ -173,9 +196,15 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
     <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
     <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
+    <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later. Losing your last fighter ends the run and clears the save. Scores go on a <b>leader board</b> kept in this browser &mdash; three characters, arcade rules.</p>
+    <div class="panel" id="tBoardPanel" hidden>
+      <h2>Gold leader board</h2>
+      <table class="board" id="tBoard"></table>
+    </div>
     <div class="actions">
+      <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
-      <p class="sub">Enter · controller Start or A</p>
+      <p class="sub" id="startHint">Enter · controller Start or A</p>
     </div>
     <p class="sub">Ship models: Quaternius Ultimate Spaceships · surface textures: ambientCG · both CC0</p>
   </section>
@@ -212,6 +241,15 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="panel" id="dLogPanel" hidden>
       <h2>Stage by stage</h2>
       <table class="threats" id="dLog"></table>
+    </div>
+    <div class="panel" id="dEntryPanel" hidden>
+      <h2 id="dEntryTitle">You made the board — enter your name</h2>
+      <div class="initials" id="dInitials"></div>
+      <p class="sub">Up / down for a letter · left / right for a slot · Enter, Fire or A to confirm</p>
+    </div>
+    <div class="panel" id="dBoardPanel" hidden>
+      <h2>Gold leader board</h2>
+      <table class="board" id="dBoard"></table>
     </div>
     <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button></div>
   </section>
@@ -1718,9 +1756,8 @@ function settleAssets() {
   const old = carrierParts.deck.material;
   carrierParts.deck.material = new THREE.MeshStandardMaterial({ map: deckTexture(), roughness: 0.85, metalness: 0.3 });
   old.dispose();
-  const b = $('launchBtn');
-  b.disabled = false;
-  b.textContent = 'Launch';
+  $('launchBtn').disabled = false;
+  refreshTitle();
 }
 
 // Tractor beam: open cone with scrolling energy bands.
@@ -2798,11 +2835,76 @@ let banner = { text: '', sub: '', t: 0, life: 0 };
 let comms = [];
 const tagCounter = { drone: 0, lancer: 0, warden: 0, raider: 0 };
 
+// ---------------------------------------------------------------- local storage
+// Everything persistent lives in this browser and nowhere else: a private window, cleared site
+// data or a different machine all start from nothing, so every read has to survive coming back
+// empty or throwing outright.
+const SAVE_KEY = 'sortie.run', BOARD_KEY = 'sortie.board', SAVE_V = 1, BOARD_MAX = 10;
+function readJSON(key) {
+  try { const t = localStorage.getItem(key); return t ? JSON.parse(t) : null; } catch { return null; }
+}
+function writeJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ }
+}
+function dropKey(key) {
+  try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+}
 function loadHi() {
   try { return parseInt(localStorage.getItem('sortie.hi') || '0', 10) || 0; } catch { return 0; }
 }
 function saveHi() {
   try { localStorage.setItem('sortie.hi', String(hi)); } catch { /* storage unavailable */ }
+}
+
+// The run is checkpointed at the top of each wave, which is the one moment the whole thing is a
+// handful of numbers: no enemies in flight, no bolts, no asteroid field worth keeping. Continuing
+// therefore replays the wave you were on rather than the second you stopped -- a lost dogfight
+// costs that wave, never the run.
+function saveRun() {
+  if (state !== 'play') return;
+  writeJSON(SAVE_KEY, {
+    v: SAVE_V, at: Date.now(), wave, score, lives, kills, shots, hits,
+    rocks: rocksDestroyed, nextExtra, carryMissiles,
+    hull: player.hull, shield: player.shield, missiles: player.missiles,
+    wings: wings.filter((w) => !w.dead).map((w) => ({ slot: w.slot, hp: w.hp })),
+    log: sortieLog,
+  });
+}
+function loadRun() {
+  const r = readJSON(SAVE_KEY);
+  if (!r || r.v !== SAVE_V) return null;
+  // A save written by a build that counted waves differently, or a hand-edited one, should not
+  // be able to drop the game into a wave it cannot construct.
+  if (!Number.isFinite(r.wave) || r.wave < 1 || r.wave > 9999) return null;
+  return r;
+}
+
+function loadBoard() {
+  const b = readJSON(BOARD_KEY);
+  if (!Array.isArray(b)) return [];
+  return b
+    .filter((e) => e && typeof e.name === 'string' && Number.isFinite(e.score))
+    .map((e) => ({ name: String(e.name).slice(0, 3), score: e.score | 0, wave: e.wave | 0, at: e.at | 0 }))
+    .sort((x, y) => y.score - x.score)
+    .slice(0, BOARD_MAX);
+}
+// Where a score would land, or -1 if it would not make the board at all. Ties go below the
+// score already standing: the board rewards getting there first.
+function boardRank(sc) {
+  if (sc <= 0) return -1;
+  const b = loadBoard();
+  let i = 0;
+  while (i < b.length && b[i].score >= sc) i++;
+  return i < BOARD_MAX ? i : -1;
+}
+function postScore(name, sc, wv) {
+  const b = loadBoard();
+  const row = { name, score: sc, wave: wv, at: Date.now() };
+  b.push(row);
+  b.sort((x, y) => y.score - x.score);
+  const kept = b.slice(0, BOARD_MAX);
+  writeJSON(BOARD_KEY, kept);
+  return kept.indexOf(row);
 }
 
 function comm(who, text, kind = 'friend') {
@@ -3413,10 +3515,11 @@ const WING_LABEL = ['Gold Two', 'Gold Three', 'Gold Four'];
 // Right wing, left wing, and high trail. The third station is deliberately not a third abreast
 // position: two ships on the same side at these speeds read as one contact and trade paint.
 const WING_SLOT = [[18, 2, 12], [-18, 2, 12], [0, 14, 34]];
-function spawnWingman(pos, quiet = false) {
+function spawnWingman(pos, quiet = false, want = -1) {
   if (wings.length >= WING_MAX) return null;
   const taken = wings.map((w) => w.slot);
-  let slot = 0;
+  // A restored flight keeps the callsigns it had; everyone else takes the lowest free station.
+  let slot = want >= 0 && want < WING_MAX && !taken.includes(want) ? want : 0;
   while (taken.includes(slot)) slot++;
   const obj = buildFriendly(false);
   obj.position.copy(pos);
@@ -4002,6 +4105,7 @@ function startWave(n) {
   waveMark = { kills, rocks: rocksDestroyed, score, lives, pods: 0, ace: 0, escorts: 0 };
   objectives = buildObjectives(n, kind);
   sfx.wave();
+  saveRun();
 }
 function waveComplete() {
   waveActive = false;
@@ -4084,6 +4188,7 @@ function clearWorld() {
 }
 function startGame() {
   audioUnlock();
+  dropKey(SAVE_KEY);
   clearWorld();
   score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
   objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0;
@@ -4102,9 +4207,101 @@ function startGame() {
   // and it lets the opening clips finish decoding so this line comes off the pack.
   setTimeout(() => voice.say(['launch-1', 'launch-2', 'launch-3'], { key: 'launch', cooldown: 1, urgent: true }), 450);
 }
+// Resuming reuses the ordinary between-wave countdown rather than jumping straight into the
+// fight: the same three-second beat as a launch, then the saved wave starts the way it would
+// have started anyway.
+function continueGame(r) {
+  audioUnlock();
+  clearWorld();
+  score = r.score | 0; lives = Math.max(1, r.lives | 0); kills = r.kills | 0;
+  shots = r.shots | 0; hits = r.hits | 0; rocksDestroyed = r.rocks | 0;
+  nextExtra = Number.isFinite(r.nextExtra) ? r.nextExtra : 20000;
+  carryMissiles = r.carryMissiles | 0;
+  sortieLog = Array.isArray(r.log) ? r.log : [];
+  objectives = []; waveMark = null;
+  resetPlayer();
+  player.hull = clamp(Number.isFinite(r.hull) ? r.hull : 100, 1, 100);
+  player.shield = clamp(Number.isFinite(r.shield) ? r.shield : 100, 0, 100);
+  player.missiles = clamp(r.missiles | 0, 0, 12);
+  state = 'play';
+  paused = false;
+  waveActive = false;
+  wave = r.wave - 1;             // updateFlow starts wave + 1 when the countdown runs out
+  nextWaveT = 3;
+  overT = -1;
+  $('title').hidden = true; $('over').hidden = true; $('pause').hidden = true;
+  cockpit.visible = true;
+  // The flight re-forms with the hull it had, callsigns and all.
+  for (const w of (Array.isArray(r.wings) ? r.wings : []).slice().sort((a, b) => a.slot - b.slot)) {
+    const born = spawnWingman(LAUNCH_POS.clone().add(V(rand(-40, 40), rand(10, 30), rand(-40, 40))), true, w.slot | 0);
+    if (born) born.hp = clamp(w.hp | 0, 1, WING_HP);
+  }
+  showBanner(`RESUMING WAVE ${r.wave}`, 'Gold Leader clear of the Halcyon', 2.6);
+  comm('HALCYON', `Gold Leader, you are back on the board. Picking up at wave ${r.wave}.`, 'friend');
+  setTimeout(() => voice.say(['launch-1', 'launch-2', 'launch-3'], { key: 'launch', cooldown: 1, urgent: true }), 450);
+}
+// ---------------------------------------------------------------- the board
+// Ten rows, three characters each, the way a cabinet does it. `mine` is the row just posted, so
+// the player can find themselves without counting.
+function renderBoard(el, mine = -1) {
+  const b = loadBoard();
+  el.innerHTML = b.map((e, i) => `<tr class="${i === mine ? 'you' : ''}">
+    <td class="r">${i + 1}</td><td class="nm">${e.name}</td>
+    <td class="sc">${e.score.toLocaleString()}</td><td class="wv">W${e.wave}</td></tr>`).join('');
+  return b.length;
+}
+
+// A letter wheel rather than a text field: it is the arcade gesture, and three buttons per slot
+// means a phone gets the same control as a keyboard with no second code path.
+const ENTRY_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.';
+let entry = null;   // { at: [i, i, i], cur, score, wave }
+function entryName() { return entry.at.map((i) => ENTRY_CHARS[i]).join(''); }
+function drawEntry() {
+  if (!entry) return;
+  $('dInitials').innerHTML = entry.at.map((i, n) => `<div class="slot ${n === entry.cur ? 'on' : ''}" data-slot="${n}">
+    <button class="spin" type="button" data-spin="${n}:1" aria-label="Previous letter">&#9650;</button>
+    <div class="ch">${ENTRY_CHARS[i]}</div>
+    <button class="spin" type="button" data-spin="${n}:-1" aria-label="Next letter">&#9660;</button>
+  </div>`).join('') + '<button class="launch ghost" type="button" id="dConfirm">Confirm</button>';
+}
+function openEntry(sc, wv) {
+  // Start from the last name entered, so a regular player taps confirm and nothing else.
+  let seed = 'AAA';
+  try { seed = (localStorage.getItem('sortie.name') || 'AAA').toUpperCase(); } catch { /* storage unavailable */ }
+  const at = [0, 1, 2].map((n) => Math.max(0, ENTRY_CHARS.indexOf(seed[n] || 'A')));
+  entry = { at, cur: 0, score: sc, wave: wv };
+  $('dEntryTitle').textContent = `You made the board at #${boardRank(sc) + 1} — enter your name`;
+  $('dEntryPanel').hidden = false;
+  drawEntry();
+}
+function spinEntry(slot, dir) {
+  if (!entry) return;
+  entry.cur = slot;
+  entry.at[slot] = (entry.at[slot] + dir + ENTRY_CHARS.length) % ENTRY_CHARS.length;
+  drawEntry();
+  sfx.comm();
+}
+function moveEntry(dir) {
+  if (!entry) return;
+  entry.cur = clamp(entry.cur + dir, 0, 2);
+  drawEntry();
+}
+function confirmEntry() {
+  if (!entry) return;
+  const name = entryName();
+  try { localStorage.setItem('sortie.name', name); } catch { /* storage unavailable */ }
+  const mine = postScore(name, entry.score, entry.wave);
+  entry = null;
+  $('dEntryPanel').hidden = true;
+  $('dBoardPanel').hidden = renderBoard($('dBoard'), mine) === 0;
+  sfx.rescued();
+}
+
 function gameOver() {
   state = 'over';
   cockpit.visible = false;
+  // The run is finished, so the checkpoint has nothing left to continue.
+  dropKey(SAVE_KEY);
   saveHi();
   document.exitPointerLock?.();
   const ratio = shots ? (hits / shots) * 100 : 0;
@@ -4127,6 +4324,12 @@ function gameOver() {
     <td class="n">${(r.earned + r.bonus).toLocaleString()}${r.bonus ? `<span class="tag">+${r.bonus.toLocaleString()} bonus</span>` : ''}</td></tr>`).join('');
   $('dLogPanel').hidden = sortieLog.length === 0;
   $('dRank').textContent = score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer';
+  // Name entry first if the score earned it; the board goes up either way, once there is one.
+  entry = null;
+  $('dEntryPanel').hidden = true;
+  const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
+  if (boardRank(score) >= 0) openEntry(score, wavesFlown);
+  $('dBoardPanel').hidden = renderBoard($('dBoard')) === 0;
   $('over').hidden = false;
   overShown = performance.now();
 }
@@ -4139,9 +4342,29 @@ function togglePause() {
 }
 function onStart() {
   audioUnlock();
-  if (state === 'title') { if (assetsSettled) startGame(); }
-  else if (state === 'over') { if (performance.now() - overShown > 900) startGame(); }
-  else togglePause();
+  if (state === 'title') {
+    if (!assetsSettled) return;
+    const r = loadRun();
+    if (r) continueGame(r); else startGame();
+  } else if (state === 'over') {
+    // While the wheel is open, the confirm gesture belongs to it, not to flying again.
+    if (entry) { confirmEntry(); return; }
+    if (performance.now() - overShown > 900) startGame();
+  } else togglePause();
+}
+
+// The title screen reads the saved run every time it is shown, so quitting mid-run and coming
+// back offers the continue without a reload.
+function refreshTitle() {
+  const r = loadRun();
+  const cont = $('continueBtn');
+  cont.hidden = !r;
+  if (r) cont.textContent = `Continue · Wave ${r.wave}`;
+  $('launchBtn').textContent = assetsSettled ? (r ? 'New sortie' : 'Launch') : 'Loading ships…';
+  $('startHint').textContent = r
+    ? 'Enter or A continues · N or X starts a new sortie'
+    : 'Enter · controller Start or A';
+  $('tBoardPanel').hidden = renderBoard($('tBoard')) === 0;
 }
 
 // Title screen: a slow orbit of the carrier while a Drone flight patrols.
@@ -4241,6 +4464,8 @@ const mouse = { x: 0, y: 0, active: false, fire: false, missileEdge: false, whee
 const touchStick = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
 let touchFire = false, pointerLocked = false, padUsed = false, lastPad = null;
 const padPrev = new Map();
+// Direction latch for menu navigation, so a held stick steps once instead of spinning.
+const padNav = { up: false, down: false, left: false, right: false };
 
 function rumble(ms, s) {
   try { lastPad?.vibrationActuator?.playEffect?.('dual-rumble', { duration: ms, strongMagnitude: s, weakMagnitude: s * 0.6 }); } catch { /* no rumble */ }
@@ -4252,7 +4477,24 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.repeat) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) mouse.active = pointerLocked;
+  // The wheel owns the keyboard while it is open, including a typed letter straight into the slot.
+  if (entry) {
+    // Arrows only for navigation: WASD would otherwise eat four of the letters being typed.
+    if (e.code === 'ArrowUp') spinEntry(entry.cur, 1);
+    else if (e.code === 'ArrowDown') spinEntry(entry.cur, -1);
+    else if (e.code === 'ArrowLeft') moveEntry(-1);
+    else if (e.code === 'ArrowRight' || e.code === 'Tab') moveEntry(1);
+    else if (e.code === 'Enter' || e.code === 'Space') confirmEntry();
+    else if (e.code === 'Backspace') moveEntry(-1);
+    else {
+      const typed = e.key && e.key.length === 1 ? e.key.toUpperCase() : '';
+      const at = ENTRY_CHARS.indexOf(typed);
+      if (at >= 0) { entry.at[entry.cur] = at; if (entry.cur < 2) entry.cur++; drawEntry(); sfx.comm(); }
+    }
+    return;
+  }
   if (e.code === 'Enter') onStart();
+  if (e.code === 'KeyN' && state === 'title' && assetsSettled) startGame();
   if (e.code === 'KeyP' || (e.code === 'Escape' && !pointerLocked)) togglePause();
   if (e.code === 'KeyM') comm('SYSTEM', sfx.toggle() ? 'Sound off.' : 'Sound on.', 'friend');
   if (e.code === 'KeyC') toggleView();
@@ -4378,6 +4620,20 @@ function updateTouchUI() {
 }
 
 $('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) startGame(); });
+$('continueBtn').addEventListener('click', () => {
+  if (state !== 'title' || !assetsSettled) return;
+  const r = loadRun();
+  if (r) continueGame(r); else refreshTitle();
+});
+// One delegated handler: the wheel is rebuilt on every change, so per-button listeners would
+// have to be re-attached each time.
+$('dInitials').addEventListener('click', (e) => {
+  const spin = e.target.closest('[data-spin]');
+  if (spin) { const [n, d] = spin.dataset.spin.split(':'); spinEntry(+n, +d); return; }
+  if (e.target.id === 'dConfirm') { confirmEntry(); return; }
+  const slot = e.target.closest('[data-slot]');
+  if (slot) spinEntry(+slot.dataset.slot, 1);
+});
 $('againBtn').addEventListener('click', () => { if (state === 'over') startGame(); });
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 window.addEventListener('gamepadconnected', () => { padUsed = true; comm('SYSTEM', 'Controller connected.', 'friend'); });
@@ -4425,9 +4681,24 @@ function readInput(dt) {
       if (edge(3)) cycleTarget();
       if (edge(5)) targetNearest((t) => t.prey === PLAYER && (t.state === 'attack' || t.state === 'beam' || t.state === 'raid'));
     }
+    if (entry) {
+      // A latch per direction, so holding the stick steps one letter rather than spinning away.
+      const ey = -(gp.axes[1] || 0), ex = gp.axes[0] || 0;
+      const up = now[12] || ey > 0.6, down = now[13] || ey < -0.6;
+      const left = now[14] || ex < -0.6, right = now[15] || ex > 0.6;
+      if (up && !padNav.up) spinEntry(entry.cur, 1);
+      if (down && !padNav.down) spinEntry(entry.cur, -1);
+      if (left && !padNav.left) moveEntry(-1);
+      if (right && !padNav.right) moveEntry(1);
+      if (edge(0) || edge(9)) confirmEntry();
+      Object.assign(padNav, { up, down, left, right });
+      padPrev.set(gp.index, now);
+      continue;
+    }
     if (edge(9)) onStart();
     if (edge(11)) toggleView();
     if (edge(0) && state !== 'play') onStart();
+    if (edge(2) && state === 'title' && assetsSettled) startGame();
     if (edge(8)) { flightStyle = !flightStyle; comm('SYSTEM', flightStyle ? 'Pitch: flight style (forward dives).' : 'Pitch: arcade style (forward climbs).', 'friend'); }
     if (gp.axes.some((a) => Math.abs(a) > 0.3) || now.some(Boolean)) { padUsed = true; mouse.active = pointerLocked && mouse.active; }
     padPrev.set(gp.index, now);
@@ -5094,6 +5365,7 @@ function frame() {
   updateMfds();
   updateTouchUI();
 }
+refreshTitle();
 frame();
 </script>
 
