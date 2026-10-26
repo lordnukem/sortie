@@ -449,10 +449,28 @@ def main() -> int:
             write_wav(w, legacy_boom(big, rng))
             encode(w, out / f"legacy-{name}.mp3")
 
+    # The manifest describes the whole pack, not just this run's output. Anything imported by
+    # `import_sfx.py` lives in the same directory and is listed in `tools/imported.json`, so it
+    # gets folded in here -- the game loads the manifest and nothing else, so a name missing
+    # from it silently falls back to synthesis. render_pack.py learned this the hard way when a
+    # `--only` run orphaned the other 98 voice clips.
     import json
+    ledger_path = Path(__file__).resolve().parent / "imported.json"
+    sources = {n: "rendered by tools/sfx_render.py" for n in counts}
+    if ledger_path.is_file():
+        ledger = json.loads(ledger_path.read_text())
+        for name, e in ledger.get("clips", {}).items():
+            present = [v for v in e["variants"] if (out / f"{name}-{v['n']}.mp3").is_file()]
+            if not present:
+                print(f"  note: {name} is in imported.json but has no clip on disk")
+                continue
+            counts[name] = len(present)
+            sources[name] = f"{e['author']} -- {e['licence']} -- see ATTRIBUTION.md"
+
     (out / "manifest.json").write_text(json.dumps({
         "variants": counts,
-        "format": "mp3 64kbps mono 44100Hz, rendered offline; no reverb send (tails are baked)",
+        "sources": sources,
+        "format": "mp3 64kbps mono 44100Hz; rendered clips have no reverb send (tails are baked)",
     }, indent=1, sort_keys=True) + "\n")
 
     for n, b in rows:

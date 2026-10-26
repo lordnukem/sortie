@@ -1,0 +1,4 @@
+{
+ "_note": "Provenance for anything in assets/sfx/ that this project did not generate. ATTRIBUTION.md is built from this file by tools/import_sfx.py, and tools/sfx_render.py folds these names into the pack manifest, so a clip cannot ship uncredited or unlisted. Empty until an audition pick is confirmed.",
+ "clips": {}
+}

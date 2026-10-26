@@ -463,17 +463,57 @@ const sfx = (() => {
     } catch { /* audio unavailable */ }
   }
   // Channel strip: optional soft-clip drive, a stereo position, and a reverb send.
-  function strip(pan, wet, dist, bus) {
+  function strip(pan, wet, dist, bus, out) {
     const p = ctx.createStereoPanner();
     p.pan.value = clamp(pan, -1, 1);
-    p.connect(BUS[bus] || BUS.ui);
+    p.connect(out || BUS[bus] || BUS.ui);
     if (wet > 0) { const s = ctx.createGain(); s.gain.value = wet; p.connect(s); s.connect(verbIn); }
     if (!dist) return p;
     const ws = ctx.createWaveShaper(); ws.curve = drive; ws.connect(p);
     return ws;
   }
   const live = () => ctx && !muted;
-  function tone({ f, f2, d, type = 'square', v = 0.08, delay = 0, pan = 0, wet = 0, dist = false, attack = 0.003, detune = 0, bus = 'ui' }) {
+  // How many of a kind may sound at once. Without this every kill allocated its own full-
+  // bandwidth voice, so a flight of five dying on one frame stacked five explosions into the
+  // `big` bus -- the exact case the eased compressor there was supposed to leave room for.
+  // Player fire is deliberately absent: the gun's own rate limits it, and the player's shot
+  // should never be the thing that gets stolen.
+  const CAP = { blast: 3, shot: 4, hit: 4 };
+  const voices = { blast: [], shot: [], hit: [] };
+  // A claimed voice is one gain node that a whole effect's layers share, so the effect can be
+  // taken away as a unit. Returns a node to play through, `false` to not play at all, or null
+  // when there is no graph to claim from. The reverb send stays per layer and outside this
+  // node, so a stolen voice keeps its tail and dies the way a real one would.
+  //
+  // Over the cap, what happens depends on how old the voice being displaced is, and the
+  // distinction is the whole point. Measured at the master with sixteen explosions on one
+  // frame: stealing held the count at 3 but peak still climbed to 3.57, because a fade takes
+  // ~36 ms to settle and every one of those sixteen attacks lands inside it. The transient is
+  // the part that was overloading the mix, and it is already in the sum by the time the fade
+  // begins. So a sibling from this same frame is not crowding -- it *is* the crowd -- and the
+  // new voice is refused outright. Only a voice old enough to be decaying gets stolen, which
+  // is the case that matters: a fresh kill should still be heard over three dying rumbles.
+  const SIBLING = 0.06;
+  function claim(group, bus, life) {
+    if (!live()) return null;
+    const list = voices[group];
+    const now = ctx.currentTime;
+    while (list.length >= CAP[group]) {
+      if (now - list[0].born < SIBLING) return false;
+      list.shift().gain.setTargetAtTime(0.0001, now, 0.012);
+    }
+    const g = ctx.createGain();
+    g.born = now;
+    g.connect(BUS[bus] || BUS.ui);
+    list.push(g);
+    setTimeout(() => {
+      const i = list.indexOf(g);
+      if (i >= 0) list.splice(i, 1);
+      g.disconnect();
+    }, life * 1000 + 120);
+    return g;
+  }
+  function tone({ f, f2, d, type = 'square', v = 0.08, delay = 0, pan = 0, wet = 0, dist = false, attack = 0.003, detune = 0, bus = 'ui', out = null }) {
     if (!live()) return;
     const t = ctx.currentTime + delay;
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -484,10 +524,10 @@ const sfx = (() => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(v, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(g); g.connect(strip(pan, wet, dist, bus));
+    o.connect(g); g.connect(strip(pan, wet, dist, bus, out));
     o.start(t); o.stop(t + d + 0.05);
   }
-  function hiss({ d, v, f = 2000, f2 = 80, type = 'lowpass', q = 0.7, delay = 0, pan = 0, pan2, wet = 0, dist = false, attack = 0.003, bus = 'ui' }) {
+  function hiss({ d, v, f = 2000, f2 = 80, type = 'lowpass', q = 0.7, delay = 0, pan = 0, pan2, wet = 0, dist = false, attack = 0.003, bus = 'ui', out = null }) {
     if (!live()) return;
     const t = ctx.currentTime + delay;
     const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
@@ -498,9 +538,9 @@ const sfx = (() => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(v, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    const out = strip(pan, wet, dist, bus);
-    if (pan2 !== undefined && out.pan) out.pan.linearRampToValueAtTime(clamp(pan2, -1, 1), t + d);
-    s.connect(fl); fl.connect(g); g.connect(out);
+    const end = strip(pan, wet, dist, bus, out);
+    if (pan2 !== undefined && end.pan) end.pan.linearRampToValueAtTime(clamp(pan2, -1, 1), t + d);
+    s.connect(fl); fl.connect(g); g.connect(end);
     s.start(t, Math.random()); s.stop(t + d + 0.05);
   }
   const chime = (notes, len, gap, v = 0.045) => notes.forEach((f, i) => {
@@ -547,13 +587,17 @@ const sfx = (() => {
       tone({ f: 150, f2: 55, d: 0.09, type: 'sine', v: 0.07, pan, bus: 'wpn' });
     },
     enemyLaser(v = 1, pan = 0) {
-      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25, bus: 'wpn' });
-      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan, bus: 'wpn' });
+      const out = claim('shot', 'wpn', 0.18);
+      if (out === false) return;
+      tone({ f: 760, f2: 110, d: 0.18, type: 'sawtooth', v: 0.04 * v, pan, wet: 0.25, bus: 'wpn', out });
+      tone({ f: 1500, f2: 380, d: 0.08, type: 'square', v: 0.015 * v, pan, bus: 'wpn', out });
     },
     // Carrier point-defence cannon: a short, dry, distant rattle.
     pd(v = 1, pan = 0) {
-      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25, bus: 'wpn' });
-      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan, bus: 'wpn' });
+      const out = claim('shot', 'wpn', 0.06);
+      if (out === false) return;
+      tone({ f: 1100, f2: 420, d: 0.06, type: 'square', v: 0.025 * v, pan, wet: 0.25, bus: 'wpn', out });
+      hiss({ d: 0.05, v: 0.04 * v, f: 4000, f2: 1500, type: 'highpass', pan, bus: 'wpn', out });
     },
     // A shot that only just missed, sweeping across the stereo field.
     whiz(pan = 0, pan2 = 0) { hiss({ d: 0.35, v: 0.09, f: 1800, f2: 500, type: 'bandpass', q: 3, pan, pan2 }); },
@@ -572,9 +616,11 @@ const sfx = (() => {
       else tone({ f: 1318, d: 0.05, type: 'sine', v: 0.04 });
     },
     hit(pan = 0, v = 1) {
-      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan, bus: 'imp' });
-      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan, bus: 'imp' });
-      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan, bus: 'imp' });
+      const out = claim('hit', 'imp', 0.09);
+      if (out === false) return;
+      tone({ f: 1800, f2: 600, d: 0.06, type: 'square', v: 0.035 * v, pan, bus: 'imp', out });
+      hiss({ d: 0.09, v: 0.07 * v, f: 5000, f2: 1500, type: 'highpass', pan, bus: 'imp', out });
+      tone({ f: 3100, d: 0.05, type: 'triangle', v: 0.02 * v, pan, bus: 'imp', out });
     },
     shield() {
       if (samples.play('shield', 1, 0, 'imp')) return;
@@ -590,19 +636,25 @@ const sfx = (() => {
     },
     // Explosion: a sub drop, a broadband crack that darkens into rumble, then crackling debris, all into the reverb.
     boom(big, v = 1, pan = 0) {
-      if (samples.play(big ? 'boom-big' : 'boom-small', v, pan, 'big')) return;
       const L = big ? 1.8 : 0.9;
-      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005, bus: 'big' });
-      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004, bus: 'big' });
+      const out = claim('blast', 'big', L + 0.4);
+      if (out === false) return;
+      if (samples.play(big ? 'boom-big' : 'boom-small', v, pan, 'big', out)) return;
+      tone({ f: big ? 85 : 120, f2: 26, d: L, type: 'sine', v: (big ? 0.5 : 0.3) * v, pan, wet: 0.3, attack: 0.005, bus: 'big', out });
+      hiss({ d: L, v: (big ? 0.55 : 0.38) * v, f: big ? 4200 : 5200, f2: 70, pan, wet: 0.5, dist: true, attack: 0.004, bus: 'big', out });
       for (let i = 0; i < (big ? 9 : 5); i++) {
-        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4, bus: 'big' });
+        hiss({ d: rand(0.04, 0.12), v: rand(0.04, 0.1) * v, f: rand(2000, 6000), f2: 900, type: 'bandpass', q: 2, delay: rand(0.08, L * 0.7), pan: pan + rand(-0.3, 0.3), wet: 0.4, bus: 'big', out });
       }
     },
     rock(size, v = 1, pan = 0) {
-      if (samples.play(`rock-${clamp(size, 1, 3)}`, v, pan, 'big')) return;
-      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true, bus: 'big' });
-      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan, bus: 'big' });
-      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan, bus: 'big' });
+      // Rocks share the explosion budget on purpose: a shattering field and a dying flight are
+      // the same pile of broadband energy arriving on the same bus.
+      const out = claim('blast', 'big', 0.3 + size * 0.22 + 0.4);
+      if (out === false) return;
+      if (samples.play(`rock-${clamp(size, 1, 3)}`, v, pan, 'big', out)) return;
+      hiss({ d: 0.3 + size * 0.22, v: 0.32 * v, f: 700 + (3 - size) * 900, f2: 60, pan, wet: 0.35, dist: true, bus: 'big', out });
+      tone({ f: 70 + (3 - size) * 30, f2: 30, d: 0.3 + size * 0.15, type: 'sine', v: 0.2 * v, pan, bus: 'big', out });
+      for (let i = 0; i < 4; i++) hiss({ d: 0.05, v: 0.06 * v, f: rand(1500, 3500), f2: 800, type: 'bandpass', q: 3, delay: rand(0.05, 0.4), pan, bus: 'big', out });
     },
     saucer(v = 1, pan = 0) {
       tone({ f: 1250, f2: 1550, d: 0.11, type: 'square', v: 0.02 * v, pan, bus: 'amb' });
@@ -1042,7 +1094,7 @@ const samples = (() => {
       decodeAll();
     },
     // Returns false when it cannot play, so each caller falls through to its synth version.
-    play(name, v = 1, pan = 0, bus = 'big') {
+    play(name, v = 1, pan = 0, bus = 'big', out = null) {
       if (!B || sfx.isMuted()) return false;
       const list = buffers.get(name);
       if (!list || !list.length) return false;
@@ -1056,7 +1108,7 @@ const samples = (() => {
       g.gain.value = clamp(v, 0, 1.6);
       const p = ctx.createStereoPanner();
       p.pan.value = clamp(pan, -1, 1);
-      src.connect(g); g.connect(p); p.connect(B.buses[bus] || B.buses.big);
+      src.connect(g); g.connect(p); p.connect(out || B.buses[bus] || B.buses.big);
       src.start();
       return true;
     },

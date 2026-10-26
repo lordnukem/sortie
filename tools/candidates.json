@@ -1,0 +1,29 @@
+{
+ "_note": "Shortlist for listening, not a ledger. Chosen off measured duration, spectral centroid and flatness across the two Kenney CC0 packs -- low flatness means tonal, which is what a reward sound wants. Whatever survives the audition gets moved into imported.json with its provenance, and only then installed.",
+ "slots": {
+  "extra": [
+   "iface/Audio/confirmation_004.ogg",
+   "iface/Audio/confirmation_002.ogg",
+   "iface/Audio/confirmation_001.ogg",
+   "iface/Audio/pluck_002.ogg"
+  ],
+  "rescued": [
+   "iface/Audio/select_004.ogg",
+   "iface/Audio/confirmation_001.ogg",
+   "iface/Audio/glass_004.ogg",
+   "iface/Audio/select_006.ogg"
+  ],
+  "captured": [
+   "iface/Audio/error_006.ogg",
+   "iface/Audio/error_008.ogg",
+   "scifi/Audio/lowFrequency_explosion_000.ogg",
+   "iface/Audio/glitch_001.ogg"
+  ],
+  "wave": [
+   "iface/Audio/maximize_009.ogg",
+   "scifi/Audio/forceField_000.ogg",
+   "iface/Audio/maximize_001.ogg",
+   "iface/Audio/open_003.ogg"
+  ]
+ }
+}

@@ -1,5 +1,15 @@
 {
- "format": "mp3 64kbps mono 44100Hz, rendered offline; no reverb send (tails are baked)",
+ "format": "mp3 64kbps mono 44100Hz; rendered clips have no reverb send (tails are baked)",
+ "sources": {
+  "beam": "rendered by tools/sfx_render.py",
+  "boom-big": "rendered by tools/sfx_render.py",
+  "boom-small": "rendered by tools/sfx_render.py",
+  "hull": "rendered by tools/sfx_render.py",
+  "rock-1": "rendered by tools/sfx_render.py",
+  "rock-2": "rendered by tools/sfx_render.py",
+  "rock-3": "rendered by tools/sfx_render.py",
+  "shield": "rendered by tools/sfx_render.py"
+ },
  "variants": {
   "beam": 2,
   "boom-big": 3,

@@ -154,9 +154,10 @@ its own dynamics, and they meet at a brick-wall limiter:
 |---|---|---|
 | `wpn` | Lasers, point defence, missiles | −20 dB, 3:1, 3 ms attack |
 | `imp` | Hits, shields, hull | −15 dB, 4:1, 2 ms attack |
-| `big` | Explosions, rocks, jump flashes | −11 dB, 2.4:1, 6 ms attack |
+| `big` | Explosions, rocks, jump flashes | −9 dB, 1.8:1, 8 ms attack |
 | `amb` | Engine, saucer hum, fly-bys, beam, reverb return | none |
 | `ui` | Lock tones, radio, jingles, alarm | none |
+| `vox` | Halcyon control, slightly forward of the rest | none |
 | `mus` | Music (runs its own ducking) | none |
 
 There used to be a single compressor for everything, which meant an explosion
@@ -164,6 +165,35 @@ flattened the lasers for a fifth of a second and pumped the music along with it.
 The reverb tail returns on `amb`, outside the transient compressors, so a big hit
 does not pump its own tail. The limiter (−3 dB, 20:1, 1 ms) is what lets the mix
 sit louder without clipping when several things go off at once.
+
+### The voice budget
+
+Buses control the balance between categories. They do nothing about one category
+arriving many times at once, and that is the case the game actually produces: a
+flight of five dying on the same frame, or a boss pod going up while an asteroid
+field shatters. Every one of those used to allocate its own full-bandwidth voice.
+
+So the dense effects share a budget. Each one claims a single gain node that all
+its layers play through, which makes the whole effect something that can be taken
+away as a unit.
+
+| Group | Cap | Covers |
+|---|---|---|
+| `blast` | 3 | Explosions and asteroid breaks, which are the same pile of broadband energy on the same bus |
+| `shot` | 4 | Enemy lasers and carrier point defence |
+| `hit` | 4 | Bullet impacts, the densest and least individually meaningful sound in the game |
+
+Over the cap, what happens depends on the age of the voice being displaced, and
+that distinction is the whole mechanism. Fading the oldest is right when a fresh
+kill arrives over three dying rumbles — it should be heard, and a hard stop would
+be its own click. It is wrong for a voice that started on this same frame: a fade
+takes about 36 ms to settle, and the attack is already in the sum by then.
+Measured at the master with sixteen explosions on one frame, stealing held the
+count at three and still let peak climb to 3.57. Refusing the new voice instead
+keeps it under 0.83 across one to thirty-two.
+
+Player fire is deliberately not in the table. The gun's own rate of fire limits
+it, and the player's shot should never be the thing that gets dropped.
 
 ### The thruster
 
@@ -251,6 +281,16 @@ and shimmering with 50% above 2 kHz. Rock is dry — stone does not ring — and
 three sizes separate by grain band, not just by the thud.
 
 Sampled clips bypass the shared reverb, since each already carries its own tail.
+
+Nothing in `assets/` is recorded or borrowed, so the repository carries no
+third-party claim. Should that change, it goes through `tools/import_sfx.py`,
+which levels and trims an outside clip to the pack's standard and records its
+author, URL and licence in `tools/imported.json` — the file `ATTRIBUTION.md` is
+generated from, so credits cannot drift from the files. The licence bar is CC0 or
+CC BY, and the reason is the shape of this repository rather than taste: the pack
+is loose mp3s anyone can fetch one at a time, which the usual "free for games"
+commercial libraries forbid because they only permit distribution inside a
+finished binary. `tools/README.md` has the detail.
 
 ## Deployment
 
