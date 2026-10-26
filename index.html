@@ -5,6 +5,14 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icon/ship-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icon/ship-192.png">
 <link rel="apple-touch-icon" href="assets/icon/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#03050a">
+<!-- iOS has no Fullscreen API on the phone, so Add to Home Screen is the only way to lose the
+     address bar there. These three are what make the saved icon open as a real app. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sortie!">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Share+Tech+Mono&display=swap">
@@ -113,6 +121,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 #controls .keys th:nth-child(2), #controls .keys td:nth-child(2) { width: 36%; }
 #controls .keys th:nth-child(3), #controls .keys td:nth-child(3) { width: 22%; }
 @media (max-width: 680px) { #controls .keys { table-layout: auto; } }
+.install { display: flex; flex-direction: column; gap: 10px; }
+.install .row { gap: 12px; }
 .links { display: flex; gap: 20px; flex-wrap: wrap; }
 .link {
   font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -211,6 +221,14 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
       <p class="sub" id="startHint">Enter · controller Start or A</p>
     </div>
+    <div class="panel install" id="installPanel" hidden>
+      <h2 id="installTitle">Play it full screen</h2>
+      <p class="note" id="installBody"></p>
+      <div class="row" id="installRow">
+        <button class="launch ghost" id="installBtn" type="button" hidden>Install</button>
+        <button class="launch ghost" id="installDismiss" type="button">Not now</button>
+      </div>
+    </div>
     <nav class="links">
       <a class="link" href="#controls">Controls</a>
       <a class="link" href="#about">About</a>
@@ -260,6 +278,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
           <tr><td>Sound</td><td><kbd>M</kbd> all · <kbd>V</kbd> voice callouts</td><td>—</td><td>—</td></tr>
           <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td><td>PAUSE</td></tr>
           <tr><td>Save &amp; quit</td><td colspan="3">A button on the pause menu. The run resumes at the start of the wave you left.</td></tr>
+          <tr><td>Full screen</td><td colspan="3">Automatic when you launch. A button on the pause menu toggles it; <kbd>Esc</kbd> leaves it, and it will not drag you back in afterwards.</td></tr>
           <tr><td>Start · continue</td><td><kbd>Enter</kbd> · <kbd>N</kbd> for a new sortie</td><td>A · X</td><td>Buttons</td></tr>
         </table>
       </div>
@@ -304,6 +323,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="panel">
       <h2>Saving and the board</h2>
       <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later, and the pause menu has a <b>Save &amp; quit</b> button for leaving on purpose. Either way you resume at the start of the wave you left. Losing your last fighter ends the run and clears the save. The save lives in this browser only.</p>
+      <p class="note">Launching goes <b>full screen</b> by default, because an address bar costs a quarter of the cockpit on a phone. Better still, <b>install the game</b> or add it to your home screen: it then opens as its own app with no browser around it at all, and it works with no connection. On iPhone and iPad that is the only way to be rid of the address bar, since Safari there has no full-screen mode for web pages.</p>
       <p class="note">There are two <b>leader boards</b> of twenty, three characters each: a <b>global</b> one on the game's own server, and a local one kept in this browser for when the server cannot be reached. A finished run is written to the local board first and sent to the global one afterwards, so a score is never lost to a timeout.</p>
     </div>
     <div class="panel">
@@ -335,6 +355,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="actions">
       <button class="launch" id="resumeBtn" type="button">Resume</button>
       <button class="launch ghost" id="pauseControls" type="button">Controls</button>
+      <button class="launch ghost" id="pauseFull" type="button" hidden>Full screen</button>
       <button class="launch ghost" id="pauseQuit" type="button">Save &amp; quit</button>
     </div>
   </section>
@@ -4681,6 +4702,7 @@ function clearWorld() {
 }
 function startGame() {
   audioUnlock();
+  fullscreenOnLaunch();
   dropKey(SAVE_KEY);
   clearWorld();
   score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
@@ -4706,6 +4728,7 @@ function startGame() {
 // have started anyway.
 function continueGame(r) {
   audioUnlock();
+  fullscreenOnLaunch();
   clearWorld();
   score = r.score | 0; lives = Math.max(1, r.lives | 0); kills = r.kills | 0;
   shots = r.shots | 0; hits = r.hits | 0; rocksDestroyed = r.rocks | 0;
@@ -4883,7 +4906,7 @@ function togglePause() {
   if (state !== 'play') return;
   paused = !paused;
   $('pause').hidden = !paused;
-  if (paused) { document.exitPointerLock?.(); voice.stop(); refreshPauseNote(); }
+  if (paused) { document.exitPointerLock?.(); voice.stop(); refreshPauseNote(); refreshFullscreenBtn(); }
 }
 // Says which wave a resume would actually land on, because that is the part a player cannot
 // guess: the checkpoint is the top of this wave, not this moment.
@@ -4941,6 +4964,90 @@ function onStart() {
   } else togglePause();
 }
 
+// ---------------------------------------------------------------- full screen, and installing
+// The address bar is the enemy here: on a phone it eats a quarter of the cockpit. There are two
+// ways to be rid of it and they do not overlap.
+//
+// The Fullscreen API works on desktop and on Android, but only from a user gesture, so "full
+// screen by default" means "full screen the moment you press Launch" and never on load.
+//
+// iPhone Safari has no Fullscreen API at all. The only thing that works there is Add to Home
+// Screen, which with the apple-mobile-web-app meta tags opens the game as a real app with no
+// browser chrome whatsoever. So the prompt below is not a nicety on iOS; it is the whole fix.
+const fsEl = document.documentElement;
+const canFullscreen = !!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen);
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+// Already launched from a home-screen icon, in which case there is nothing left to ask for.
+const isStandalone = () => window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches
+  || window.navigator.standalone === true;
+// Set once the player leaves full screen themselves, so the next wave does not drag them back in.
+let fsDeclined = false;
+
+async function goFullscreen() {
+  if (!canFullscreen || isFullscreen() || isStandalone()) return;
+  try {
+    await (fsEl.requestFullscreen ? fsEl.requestFullscreen({ navigationUI: 'hide' }) : fsEl.webkitRequestFullscreen());
+    // Landscape only works inside full screen, and only on Android; everywhere else it throws
+    // and that is fine.
+    try { await screen.orientation?.lock?.('landscape'); } catch { /* not supported here */ }
+  } catch { /* refused, which is the player's right */ }
+}
+function exitFullscreen() {
+  try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); } catch { /* ignore */ }
+}
+function toggleFullscreen() {
+  if (isFullscreen()) { fsDeclined = true; exitFullscreen(); } else { fsDeclined = false; goFullscreen(); }
+}
+// Launching should fill the screen unless the player has said otherwise this session.
+const fullscreenOnLaunch = () => { if (!fsDeclined) goFullscreen(); };
+document.addEventListener('fullscreenchange', () => {
+  if (!isFullscreen()) fsDeclined = true;
+  refreshFullscreenBtn();
+});
+function refreshFullscreenBtn() {
+  const b = $('pauseFull');
+  b.hidden = !canFullscreen || isStandalone();
+  b.textContent = isFullscreen() ? 'Leave full screen' : 'Full screen';
+}
+
+// Chrome and Edge hand us the install prompt to fire ourselves; everyone else needs telling how.
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  refreshInstall();
+});
+window.addEventListener('appinstalled', () => { installPrompt = null; refreshInstall(); });
+const INSTALL_KEY = 'sortie.install.dismissed';
+const installDismissed = () => { try { return localStorage.getItem(INSTALL_KEY) === '1'; } catch { return false; } };
+const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS pretends to be a Mac
+
+function refreshInstall() {
+  const panel = $('installPanel');
+  // Nothing to say once it is installed, or once the player has waved it away.
+  if (isStandalone() || installDismissed()) { panel.hidden = true; return; }
+  const body = $('installBody'), btn = $('installBtn');
+  if (installPrompt) {
+    $('installTitle').textContent = 'Install it';
+    body.innerHTML = 'Install <b>Sortie!</b> and it opens like an app &mdash; no address bar, no tabs, and it works with no connection.';
+    btn.hidden = false;
+    panel.hidden = false;
+  } else if (iOS) {
+    $('installTitle').textContent = 'Add it to your home screen';
+    body.innerHTML = 'iPhone and iPad give no other way to lose the address bar. Tap <b>Share</b> at the bottom of Safari, then <b>Add to Home Screen</b>. The icon opens the game full screen, with no browser around it, and it works with no connection.';
+    btn.hidden = true;
+    panel.hidden = false;
+  } else if (isTouch) {
+    $('installTitle').textContent = 'Add it to your home screen';
+    body.innerHTML = 'Open your browser&rsquo;s menu and choose <b>Install app</b> or <b>Add to Home screen</b>. The icon opens the game full screen, and it works with no connection.';
+    btn.hidden = true;
+    panel.hidden = false;
+  } else {
+    panel.hidden = true;   // a desktop browser with no prompt to offer: full screen covers it
+  }
+}
+
 // ---------------------------------------------------------------- the reading views
 // Controls and About are full-screen views rather than separate documents, for one reason: the
 // pause menu has to show the controls without reloading, and a reload would end the run. Routing
@@ -4995,6 +5102,7 @@ function refreshTitle() {
   drawTitleBoard();
 }
 function drawTitleBoard() {
+  refreshInstall();
   const useGlobal = boardView === 'global' && globalBoard && globalBoard.length;
   const rows = useGlobal ? globalBoard : loadBoard();
   const n = renderBoard($('tBoard'), -1, rows);
@@ -5341,6 +5449,18 @@ $('dInitials').addEventListener('click', (e) => {
 $('againBtn').addEventListener('click', () => { if (state === 'over') startGame(); });
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 $('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
+$('pauseFull').addEventListener('click', () => toggleFullscreen());
+$('installBtn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  const p = installPrompt;
+  installPrompt = null;
+  try { await p.prompt(); await p.userChoice; } catch { /* dismissed */ }
+  refreshInstall();
+});
+$('installDismiss').addEventListener('click', () => {
+  try { localStorage.setItem(INSTALL_KEY, '1'); } catch { /* storage unavailable */ }
+  refreshInstall();
+});
 window.addEventListener('gamepadconnected', () => { padUsed = true; comm('SYSTEM', 'Controller connected.', 'friend'); });
 
 const dz = (v) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
@@ -6100,6 +6220,11 @@ function frame() {
   updateMfds();
   updateTouchUI();
   updateBoardScroll();
+}
+// Offline play, and what makes the browser offer to install the game at all. Not fatal if it
+// fails -- an http origin, a private window, or a browser without service workers all land here.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* the game runs online regardless */ });
 }
 refreshTitle();
 routeHash();   // a link straight to #controls or #about opens there

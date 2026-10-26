@@ -1,0 +1,19 @@
+{
+  "name": "Sortie!",
+  "short_name": "Sortie!",
+  "description": "First-person space combat in the Varan system. Break the Swarm's attack formations before they reach the fleet.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "landscape",
+  "background_color": "#03050a",
+  "theme_color": "#03050a",
+  "categories": ["games"],
+  "icons": [
+    { "src": "assets/icon/ship-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon/ship-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon/ship-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

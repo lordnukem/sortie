@@ -214,6 +214,29 @@ and keeps flying, the capital ship does not notice. Enemy fire also scales past 
 wave-7 ceiling via `threat()`, so a drone needs 19 hits to strip a full bar at wave 7 and 13 by
 wave 20, where before it was 33 forever.
 
+## Full screen, and installing
+
+An address bar costs about a quarter of the cockpit on a phone, and there are exactly two ways
+to be rid of it. They do not overlap, which is why the game does both.
+
+**Full screen** is requested the moment you press Launch or Continue — never on load, because the
+Fullscreen API only works from a user gesture. Leaving it is remembered for the session, so the
+next wave does not drag you back in. The pause menu toggles it. Inside full screen the game also
+asks for a landscape orientation lock, which works on Android and throws everywhere else.
+
+**iPhone Safari has no Fullscreen API at all.** Add to Home Screen is the only thing that works
+there, and with `apple-mobile-web-app-capable` the saved icon opens the game as a real app with
+no browser chrome whatsoever. So the prompt on the title screen is not a nicety on iOS; it is the
+entire fix, which is why the copy differs by platform: Chrome and Edge get an Install button
+wired to `beforeinstallprompt`, iOS gets the Share → Add to Home Screen instructions, other touch
+browsers get pointed at their own menu, and a desktop browser with nothing to offer is shown
+nothing. It disappears for good once dismissed, or once the game is running installed.
+
+Installing also brings `sw.js`, which caches the game for offline play — all 140-odd files,
+including the voice pack. The page itself is fetched network-first so a deploy is picked up on
+the next load; everything else is cache-first, because the assets are large and effectively
+immutable. The `CACHE` constant is bumped on deploy to drop the previous generation wholesale.
+
 ## Saving, and the board
 
 Both live in this browser's `localStorage` and nowhere else: a different machine, a private
