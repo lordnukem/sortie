@@ -6,9 +6,10 @@ rebuilt from the source it came from.
 
 | Script | Produces |
 |---|---|
-| `render_pack.py` | `assets/vox/` — 98 voice clips + manifest |
+| `render_pack.py` | `assets/vox/` — 102 voice clips + manifest |
 | `sfx_render.py` | `assets/sfx/` — 23 effect clips + manifest |
 | `radio.py` | the radio channel chain, used by `render_pack.py` and standalone for previews |
+| `engine_proto.py` | renders the old and new thruster designs over one throttle timeline, for A/B |
 
 Neither pack is needed to play the game. If `assets/vox/` or `assets/sfx/` is missing or
 fails to load, the game falls back to live Web Audio synthesis and browser speech synthesis,
@@ -51,6 +52,12 @@ single source of truth: the pack cannot list a line the game does not speak, or 
 does, and the runtime uses the same text for its speech-synthesis fallback. Add a line to
 `VOX`, re-run, done.
 
+The manifest is always rebuilt from the `VOX` table intersected with the mp3s actually present,
+never from just the clips a given run produced. That matters for `--only`: an earlier version
+wrote only what it had rendered, so rendering one line orphaned the other 98. The files stayed on
+disk, but the game loads the manifest — so every clip missing from it silently fell back to
+speech synthesis. If a line in `VOX` has no clip yet, the run says so and leaves it out.
+
 ## The two things worth knowing before changing anything
 
 **Every voice clip is a complete sentence.** Lines are assembled at runtime by playing clips
@@ -81,7 +88,24 @@ For the effects, the useful knobs are at the top of each `designed_*` function i
 `sfx_render.py` — crack gain, body sweep endpoints, sub level, grain counts, impulse tilt. The
 whole pack re-renders in about six seconds.
 
-One lesson is worth repeating, because it is not obvious: air absorption has to be applied to
-the **finished mix**, not per layer. Darkened layer by layer, the sub and body die steeply and
-leave bright reverb and debris with no low end beneath them — so the composite gets *brighter*
-as it decays, which is backwards from a real blast.
+Two lessons are worth repeating, because neither is obvious.
+
+**Air absorption has to be applied to the finished mix**, not per layer. Darkened layer by
+layer, the sub and body die steeply and leave bright reverb and debris with no low end beneath
+them — so the composite gets *brighter* as it decays, which is backwards from a real blast.
+
+**Vary the macro parameters, not just the noise seeds.** Three explosion variants that differed
+only in their random noise measured 79% waveform-correlated — near enough to identical. Jittering
+duration, sweep endpoints, decay rates and sub pitch brought that to 0.03–0.44.
+
+## The thruster
+
+`engine_proto.py` exists because "sounds too mechanical" needed diagnosing rather than guessing
+at. The old engine was two sawtooth oscillators plus a sine sub, and measured **0.86 periodicity**
+in the 30–120 Hz band: a steady pitch down there is a synthesiser, not thrust. The rewrite is
+noise-dominant with three fixed high-Q chamber resonances, and measures 0.05.
+
+The modulation matters as much as the spectrum. The old 40 / 40.7 Hz detune beat at a fixed rate
+that rose with throttle — a metronome, not turbulence. Each layer is now modulated by its own
+stream of heavily smoothed **noise**: a sine modulator gives a wobble the ear locks onto within a
+second.

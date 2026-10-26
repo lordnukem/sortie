@@ -4,8 +4,12 @@ A first-person space combat game that runs entirely in the browser. Launch from
 the carrier *Halcyon*, break the Swarm's attack formations before they reach the
 fleet, and stay out of the Wardens' tractor beams.
 
+Waves alternate between strike groups, asteroid storms and a capital-ship boss.
+Each stage states its own objectives, pays a score multiplier for meeting them,
+and debriefs you afterwards.
+
 Built with [three.js](https://threejs.org/). No build step, no bundler, no
-server-side code — `index.html` plus a folder of textures is the whole thing.
+server-side code — one `index.html` plus generated assets is the whole thing.
 
 ## Play
 
@@ -27,6 +31,7 @@ on the Pages URL but not over plain HTTP.
 | Missile | `F` or right click | LT or B | MSL |
 | Target | `T` nearest · `Tab` next · `R` attacker | X · Y · RB | TGT · ATK |
 | Camera | `C` | Right stick click | VIEW |
+| Throttle cut | `Backspace` idle · `\` full | — | — |
 | Invert pitch | `I` | Back | — |
 | Sound | `M` all · `V` voice callouts | — | — |
 | Pause | `P` or `Esc` | Start | PAUSE |
@@ -82,12 +87,15 @@ wave 20, where before it was 33 forever.
 
 ## How it works
 
-Everything is generated at runtime except the ship meshes and four surface
-textures:
+Nothing here was recorded or authored by hand. Everything is either generated at
+runtime or generated offline by the scripts in [`tools/`](tools/) — the split is
+about what a per-frame budget can afford, not about where the realism comes from.
 
-- **Sound** is synthesised with the Web Audio API — no audio files. Engines are
-  detuned sawtooths through a resonant lowpass; explosions are filtered noise
-  bursts into a generated convolution reverb.
+**Generated at runtime:**
+
+- **The thruster, weapons and impacts** are synthesised with the Web Audio API.
+  Anything fired constantly stays live, because per-shot pitch and pan variation
+  is free there and a sample would be the repetitive option.
 - **The score is adaptive and also generated** — there is no music file. Four
   stems (a held pad, a bass pulse, an arpeggio and percussion) are scheduled on
   a sixteenth-note grid at 100 BPM and faded in and out by how dangerous the
@@ -98,42 +106,75 @@ textures:
   Everything is in C — the bed is C natural minor on a i–VI–III–VII vamp, and
   the victory jingles lift to C major over it, ducking the music under
   themselves so the thirds do not collide.
-- **Callouts** from Halcyon control use the browser's speech synthesis, with
-  per-phrase rate/pitch shaping and a cooldown per message so repeats don't pile
-  up.
 - **Hull plating, Swarm carapace and asteroid rock** have procedural fallback
   textures drawn to canvas, used if the downloaded ones fail to load.
-- **Ship meshes** arrive as OBJ text in `assets/ship-models.js` and are scaled
-  and re-oriented at load so every ship flies along its own +z.
+- **The hive ship** is built from primitives at spawn, like the carrier — nothing
+  in the downloaded ship pack is remotely capital-ship scale.
+- **The radio link** — hiss, fading, dropouts, squelch — is simulated per
+  transmission, so it differs every time and can answer to range.
 
-## Deployment
+**Generated offline, shipped as files** (because a convolution tail or a hundred
+debris grains cannot be afforded per frame):
 
-It is static files; any web server will do. On the VPS it is an additive nginx
-`location` block, so it shares the default server without affecting anything else:
+- **Halcyon's voice** — 102 clips, ~950 KiB. See [Voice](#voice).
+- **Explosions, rock breaks and impacts** — 23 clips, ~290 KiB. See [Effects](#effects).
 
-```nginx
-location = /sortie { return 301 /sortie/; }
-location /sortie/ {
-    alias /var/www/sortie/;
-    index index.html;
-    try_files $uri $uri/ =404;
-    gzip on;
-    gzip_types application/javascript text/javascript text/plain;
-    gzip_min_length 1024;
-    add_header Cache-Control "public, max-age=3600";
-}
-```
+**Downloaded, CC0:** the five ship meshes (as OBJ text in
+`assets/ship-models.js`, scaled and re-oriented at load so every ship flies
+along its own +z) and four surface textures.
 
-gzip matters here: `assets/ship-models.js` is 1,021 KB raw and 357 KB compressed.
+Every one of those file-backed layers falls back to live synthesis if it fails to
+load. That is the same discipline the ship models already used, and it means a
+missing pack degrades the game rather than breaking it.
 
-The page itself is served `no-cache` and the assets `max-age=604800`. That split
-is deliberate: `index.html` is one big file, so a cached copy makes a fresh
-deploy invisible and looks exactly like a broken one, while the ships and
-textures only change when their content does.
+## Audio
 
-## Voice
+Four layers share one `AudioContext`: the live synthesis, the adaptive
+score, the rendered effect pack and Halcyon's voice. They meet at a set of
+submix buses behind a limiter.
 
-Halcyon control is a pre-rendered pack of 98 clips (~880 KiB), not browser speech
+### Audio routing
+
+Everything shares one `AudioContext`. Each category has its own submix bus with
+its own dynamics, and they meet at a brick-wall limiter:
+
+| Bus | Contents | Compression |
+|---|---|---|
+| `wpn` | Lasers, point defence, missiles | −20 dB, 3:1, 3 ms attack |
+| `imp` | Hits, shields, hull | −15 dB, 4:1, 2 ms attack |
+| `big` | Explosions, rocks, jump flashes | −11 dB, 2.4:1, 6 ms attack |
+| `amb` | Engine, saucer hum, fly-bys, beam, reverb return | none |
+| `ui` | Lock tones, radio, jingles, alarm | none |
+| `mus` | Music (runs its own ducking) | none |
+
+There used to be a single compressor for everything, which meant an explosion
+flattened the lasers for a fifth of a second and pumped the music along with it.
+The reverb tail returns on `amb`, outside the transient compressors, so a big hit
+does not pump its own tail. The limiter (−3 dB, 20:1, 1 ms) is what lets the mix
+sit louder without clipping when several things go off at once.
+
+### The thruster
+
+Noise is the signal; resonance is the character. Four band-limited noise layers (rumble, body,
+shear hiss, plus three fixed high-Q chamber resonances) through a saturation stage that is
+driven harder under reheat.
+
+It replaced two detuned sawtooth oscillators and a sine sub. That design measured **0.86
+periodicity** in the 30–120 Hz band — a steady pitch down there is what made it read as a
+synthesiser rather than thrust. The rewrite measures 0.05. The 40 / 40.7 Hz detune was also
+producing a regular beat, so the "turbulence" was a metronome.
+
+Each layer is modulated by its own stream of heavily smoothed **noise**, played at a different
+rate. A sine modulator gives a wobble the ear locks onto within a second; combustion is chaotic,
+so the modulator has to be noise too. Afterburner adds pre-baked reheat crackle and an ignition
+thump, so engaging it is an event rather than a fader — and it shifts the spectral balance
+(+6.7 points of hiss) instead of only getting louder.
+
+`tools/engine_proto.py` renders both designs over the same throttle timeline for A/B.
+
+### Voice
+
+Halcyon control is a pre-rendered pack of 102 clips (~950 KiB), not browser speech
 synthesis. The reason is routing, not accents: `speechSynthesis` output cannot be
 fed into a Web Audio graph, so it can never be radio-processed, compressed, or
 ducked under the music — it always sits *on top of* the mix rather than coming
@@ -170,7 +211,7 @@ controller gets harder to hear.
 
 Rendering the pack: `tools/render_pack.py` (see `tools/README.md`).
 
-## Effects
+### Effects
 
 Explosions, asteroid breaks and impacts are rendered offline by
 `tools/sfx_render.py` (23 clips, ~290 KiB) rather than synthesised live.
@@ -199,44 +240,39 @@ three sizes separate by grain band, not just by the thud.
 
 Sampled clips bypass the shared reverb, since each already carries its own tail.
 
-## The thruster
+## Deployment
 
-Noise is the signal; resonance is the character. Four band-limited noise layers (rumble, body,
-shear hiss, plus three fixed high-Q chamber resonances) through a saturation stage that is
-driven harder under reheat.
+It is static files; any web server will do. On the VPS it is an additive nginx
+`location` block, so it shares the default server without affecting anything else:
 
-It replaced two detuned sawtooth oscillators and a sine sub. That design measured **0.86
-periodicity** in the 30–120 Hz band — a steady pitch down there is what made it read as a
-synthesiser rather than thrust. The rewrite measures 0.05. The 40 / 40.7 Hz detune was also
-producing a regular beat, so the "turbulence" was a metronome.
+```nginx
+location = /sortie { return 301 /sortie/; }
+location /sortie/ {
+    alias /var/www/sortie/;
+    index index.html;
+    try_files $uri $uri/ =404;
+    gzip on;
+    gzip_types application/javascript text/javascript text/plain;
+    gzip_min_length 1024;
+    # The page must NOT be cached: it is one big file, so a stale copy makes a
+    # fresh deploy invisible and looks exactly like a broken one.
+    add_header Cache-Control "no-cache";
+}
+location /sortie/assets/ {
+    alias /var/www/sortie/assets/;
+    try_files $uri =404;
+    gzip on;
+    gzip_types application/javascript text/javascript text/plain;
+    gzip_min_length 1024;
+    # Assets only change when their content does, so they can cache hard.
+    add_header Cache-Control "public, max-age=604800";
+}
+```
 
-Each layer is modulated by its own stream of heavily smoothed **noise**, played at a different
-rate. A sine modulator gives a wobble the ear locks onto within a second; combustion is chaotic,
-so the modulator has to be noise too. Afterburner adds pre-baked reheat crackle and an ignition
-thump, so engaging it is an event rather than a fader — and it shifts the spectral balance
-(+6.7 points of hiss) instead of only getting louder.
+gzip matters here: `assets/ship-models.js` is 1,021 KB raw and 357 KB compressed.
 
-`tools/engine_proto.py` renders both designs over the same throttle timeline for A/B.
-
-## Audio routing
-
-Everything shares one `AudioContext`. Each category has its own submix bus with
-its own dynamics, and they meet at a brick-wall limiter:
-
-| Bus | Contents | Compression |
-|---|---|---|
-| `wpn` | Lasers, point defence, missiles | −20 dB, 3:1, 3 ms attack |
-| `imp` | Hits, shields, hull | −15 dB, 4:1, 2 ms attack |
-| `big` | Explosions, rocks, jump flashes | −11 dB, 2.4:1, 6 ms attack |
-| `amb` | Engine, saucer hum, fly-bys, beam, reverb return | none |
-| `ui` | Lock tones, radio, jingles, alarm | none |
-| `mus` | Music (runs its own ducking) | none |
-
-There used to be a single compressor for everything, which meant an explosion
-flattened the lasers for a fifth of a second and pumped the music along with it.
-The reverb tail returns on `amb`, outside the transient compressors, so a big hit
-does not pump its own tail. The limiter (−3 dB, 20:1, 1 ms) is what lets the mix
-sit louder without clipping when several things go off at once.
+That caching split is not cosmetic — a cached page masked a live change during
+testing and reported the old audio graph as though the edit had not applied.
 
 ## Credits
 

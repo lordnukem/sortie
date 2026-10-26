@@ -141,6 +141,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
           <tr><td><i class="sw" style="--c: var(--red)"></i>Lancer<span class="tag">Heavy fighter · 12 hits</span></td><td class="n">160</td></tr>
           <tr><td><i class="sw" style="--c: var(--green)"></i>Warden<span class="tag">Tractor beam · 30 hits</span></td><td class="n">400</td></tr>
           <tr><td><i class="sw" style="--c: var(--ink)"></i>Raider saucer<span class="tag">Fires in any direction</span></td><td class="n">1000</td></tr>
+          <tr><td><i class="sw" style="--c: #8a4dff"></i>Hive ship<span class="tag">Capital ship · 4 emitter pods, then the core</span></td><td class="n">6000</td></tr>
           <tr><td><i class="sw" style="--c: var(--dim)"></i>Asteroid L / M / S<span class="tag">Splits when hit</span></td><td class="n">20·50·100</td></tr>
         </table>
       </div>
@@ -157,13 +158,17 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
             <tr><td>Missile</td><td><kbd>F</kbd> or right click</td><td>LT or B</td></tr>
             <tr><td>Target</td><td><kbd>T</kbd> nearest · <kbd>Tab</kbd> next · <kbd>R</kbd> attacker</td><td>X · Y · RB</td></tr>
             <tr><td>Camera</td><td><kbd>C</kbd> chase or cockpit</td><td>Right stick click</td></tr>
+            <tr><td>Throttle cut</td><td><kbd>Backspace</kbd> idle · <kbd>\</kbd> full</td><td></td></tr>
             <tr><td>Sound</td><td><kbd>M</kbd> all sound · <kbd>V</kbd> voice callouts</td><td></td></tr>
             <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td></tr>
           </table>
         </div>
       </div>
     </div>
-    <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Stick forward dives, like a flight sim; press <b>I</b> (or controller Back) to swap. Hold a target in your sights to lock missiles. Every third wave is an <b>asteroid storm</b>. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b>.</p>
+    <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Stick forward dives, like a flight sim; press <b>I</b> (or controller Back) to swap. Hold a target in your sights to lock missiles. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b>.</p>
+    <p class="note">Every fourth wave a <b>hive ship</b> jumps in. Your guns do nothing to its hull — strip the four <b>emitter pods</b>, one on each face, and the core opens up. Missiles hit a pod four times as hard as anything else. Every third wave otherwise is an <b>asteroid storm</b>.</p>
+    <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
+    <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
     <div class="actions">
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
       <p class="sub">Enter · controller Start or A</p>
