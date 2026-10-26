@@ -603,20 +603,24 @@ the deck lip so the deck has a thickness instead of floating.
 
 ## The icon
 
-`assets/icon/` is a tailless delta interceptor in the hive ship's violet with the
-engine cyan, drawn as pixel art by Imagen through `agy` and then cleaned up for
-use as an icon. Two things had to be undone: the generator bakes in a black
-background and draws a grid over it, and it writes JPEG.
+A low-poly fighter seen from behind, engines lit, against a faint teal nebula — generated at
+1024px by Imagen through `agy` and kept as the master at `tools/icon-source.png`. The whole set
+is rebuilt from it by `tools/build-icons.py`.
 
-Keying the background on brightness does not work, because the hull's dark violet
-sits in the same luma band as the background and a threshold eats the ship. The
-background is connected, though, and the grid lines are drawn on it — so a flood
-fill from the border removes both and leaves every dark pixel enclosed by the
-ship alone.
+Two treatments come out of the one master, because a browser tab and a home screen want
+different pictures. The **tiles** (180, 192, 512) keep the full composition: at that size the
+nebula and the stars are most of what you see. The **favicon sizes** (16, 32, 48, 64) use a
+tighter square crop around the hull, because the ship fills under half the master frame and
+uncropped it reads as a smudge at 16px. Each downscale gets a light unsharp pass to put back the
+edge that resampling costs — strongest at the smallest size, where there is least of it left.
 
-It is also only pixel-art *styled*: measured edge spacing clusters at 14–15 px on
-a 1024 px image, so there is no exact cell to snap to and the sizes are resampled
-rather than quantised.
+The **maskable** variant insets the art inside the middle 80% over the art's own near-black
+violet: Android crops app icons to whatever shape the launcher prefers, so anything in the outer
+fifth may simply not be there.
+
+This replaced an earlier pixel-art icon. That one was drawn small and could not be enlarged for
+the manifest without going soft, which is what sent us back to the generator for a master big
+enough to cut every size from.
 
 ## Credits
 
