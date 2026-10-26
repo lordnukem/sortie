@@ -66,3 +66,37 @@ with the 443 block and the redirect once the name resolves to this host.
 sqlite3 /home/ubuntu/sortie-api/scores.db \
   'SELECT created_at, name, score, wave, country, city, os, browser, device FROM scores ORDER BY id DESC LIMIT 20;'
 ```
+
+## The record pages
+
+`stats.html` is public. `admin.html` is not, and the difference is enforced here rather than in
+either page: `/api/stats` is built by `publicStats()`, which selects country and never city,
+region, address, user-agent or coordinates. The game's About page promises players that only
+name, score, wave, date and country are ever shown to anyone, and that endpoint is the one that
+would quietly break the promise if it returned what the table holds.
+
+| | |
+|---|---|
+| `GET /api/stats` | aggregates and the board, country-level |
+| `POST /api/admin/login` | password in, 12-hour token out |
+| `GET /api/admin/rows` | every column, plus city-level places |
+| `GET /api/admin/export.csv` | the whole table as CSV |
+| `GET /api/admin/export.json` | the whole table as JSON |
+
+### The administrator password
+
+Set with `node tools/set-admin-password.js '<password>'`, which writes `admin.json` (mode 600,
+gitignored): a scrypt hash, its salt, and a per-install secret that signs session tokens.
+Rotating the password rotates the secret, so every token issued under the old one stops working
+at once.
+
+The password is never sent to the page and never compared in the browser — a password checked in
+client JavaScript is a password published. Case is folded before hashing: the password is short
+enough that the case of one word is not what protects it, and being locked out of your own
+dashboard over a capital letter is the worse failure.
+
+What actually protects it is how few guesses an attacker gets: **eight attempts per IP per
+quarter hour**, and every attempt — right or wrong — is answered after a 400–700 ms pause, so the
+endpoint cannot be used to probe quickly or to time the comparison. The comparison itself is
+`timingSafeEqual`. A short password of this shape is still worth replacing with something longer
+when convenient; the tool takes any string.

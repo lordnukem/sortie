@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sortie! · Flight records</title>
+<meta name="description" content="Where Sortie! is being flown, and by what.">
+<link rel="icon" href="assets/icon/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon/ship-32.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="assets/panel.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Fleet Strike Command · Flight records</p>
+    <h1 class="name">RECORDS<span>Sortie!</span></h1>
+  </header>
+  <p class="lede">Every run that made it onto the board, where it was flown from, and what it was
+    flown on. Locations are country-level: the game records more than this, and
+    <a class="link" href="index.html#about">says so</a>, but only the country is ever shown here.</p>
+
+  <div id="tiles" class="tiles"></div>
+
+  <section class="panel">
+    <h2>Where it is being flown</h2>
+    <div id="map"></div>
+    <p class="sub" style="margin-top:10px">One dot per country, sized by runs. Land outline: Natural Earth (public domain).</p>
+  </section>
+
+  <div class="grid cols-2">
+    <section class="panel">
+      <h2>Gold leader board</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Wave</th><th>Time</th><th>Country</th><th>When</th></tr></thead>
+        <tbody id="board"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <h2>Countries</h2>
+      <div id="countries"></div>
+    </section>
+  </div>
+
+  <div class="grid cols-3">
+    <section class="panel"><h2>Operating system</h2><div id="os"></div></section>
+    <section class="panel"><h2>Browser</h2><div id="browser"></div></section>
+    <section class="panel"><h2>Device</h2><div id="device"></div></section>
+  </div>
+
+  <section class="panel">
+    <h2>Runs per day</h2>
+    <div id="daily"></div>
+  </section>
+
+  <p class="sub"><a class="link" href="index.html">← Back to the game</a></p>
+  <p class="sub" id="status"></p>
+</div>
+
+<script src="assets/world.js"></script>
+<script src="assets/panel.js"></script>
+<script>
+(async () => {
+  const { $, esc, num, dur, when, CENTROID, drawMap, drawBars, tiles } = window.P;
+  let s;
+  try {
+    const res = await fetch(window.P.API + '/stats', { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(res.status);
+    s = await res.json();
+  } catch (err) {
+    $('status').innerHTML = '<span class="err">The records server could not be reached. Try again in a moment.</span>';
+    return;
+  }
+  const t = s.totals || {};
+  const accuracy = t.shots ? ((t.hits / t.shots) * 100).toFixed(1) + ' %' : '—';
+  tiles($('tiles'), [
+    ['Runs recorded', num(t.runs)],
+    ['Time in the cockpit', dur(t.seconds), true],
+    ['Longest single run', dur(t.longest), true],
+    ['Average run', dur(t.avgSeconds), true],
+    ['Deepest wave', num(t.deepestWave)],
+    ['Swarm destroyed', num(t.kills)],
+    ['Asteroids broken', num(t.rocks)],
+    ['Fleet accuracy', accuracy, true],
+  ]);
+
+  // Country-level placement only: the centroid of the country, never the reported city.
+  const places = (s.countries || []).map((c) => {
+    const at = CENTROID[c.cc];
+    return at && { lat: at[0], lon: at[1], n: c.n, label: `${c.k} · ${c.n} run${c.n === 1 ? '' : 's'}` };
+  }).filter(Boolean);
+  drawMap($('map'), places);
+
+  $('board').innerHTML = (s.board || []).length
+    ? s.board.map((r, i) => `<tr>
+        <td class="n">${i + 1}</td><td class="nm">${esc(r.name)}</td>
+        <td class="n">${num(r.score)}</td><td class="n">${num(r.wave)}</td>
+        <td class="n">${dur(r.seconds)}</td><td>${esc(r.country || '—')}</td>
+        <td>${when(r.created_at)}</td></tr>`).join('')
+    : '<tr><td colspan="7" class="empty">No runs on the board yet. Be first.</td></tr>';
+
+  drawBars($('countries'), s.countries, { empty: 'no locations recorded yet' });
+  drawBars($('os'), s.os, { empty: 'nothing yet' });
+  drawBars($('browser'), s.browser, { empty: 'nothing yet' });
+  drawBars($('device'), s.device, { empty: 'nothing yet' });
+  drawBars($('daily'), (s.daily || []).slice().reverse(), { key: 'day', empty: 'nothing yet' });
+
+  $('status').textContent = t.runs
+    ? `First run ${when(t.firstRun)} · most recent ${when(t.lastRun)}.`
+    : 'No runs recorded yet.';
+})();
+</script>
+</body>
+</html>

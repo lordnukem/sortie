@@ -278,9 +278,11 @@ moved to two reading views:
 
 | | |
 |---|---|
-| `/sortie/` | leader board, Continue / New sortie |
-| `/sortie/#controls` | the full control table, keyboard / controller / touch |
-| `/sortie/#about` | threat board, how a sortie works, saving, credits |
+| `/` | leader board, Continue / New sortie |
+| `/#controls` | the full control table, keyboard / controller / touch |
+| `/#about` | threat board, how a sortie works, saving, credits |
+| `/stats.html` | public records: country map, board, platform breakdown |
+| `/admin.html` | operations dashboard, password-gated, raw data downloads |
 
 They are views rather than separate documents for one reason: the pause menu has to show the
 controls, and loading another page mid-run would end the run. Routing through the hash still

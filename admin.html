@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sortie! · Operations</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="assets/icon/favicon.ico" sizes="any">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="assets/panel.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Fleet Strike Command · Operations</p>
+    <h1 class="name">OPERATIONS<span>Administrators only</span></h1>
+  </header>
+
+  <!-- The gate is cosmetic. Nothing on this page is secret; the data behind it is, and the
+       server will not part with a single row without a token. -->
+  <section class="panel" id="gate">
+    <h2>Sign in</h2>
+    <form id="loginForm" autocomplete="off">
+      <div class="row" style="align-items:stretch">
+        <input type="password" id="pw" placeholder="Password" autocomplete="current-password" aria-label="Password" style="flex:1 1 260px">
+        <button class="btn" type="submit" id="go">Sign in</button>
+      </div>
+    </form>
+    <p class="sub" id="loginMsg" style="margin-top:10px">Eight attempts per quarter hour. A session lasts twelve hours.</p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="row" style="justify-content:space-between; margin-bottom:18px">
+      <p class="sub" id="sessionMsg"></p>
+      <div class="row">
+        <button class="btn ghost" id="refresh" type="button">Refresh</button>
+        <button class="btn ghost" id="csv" type="button">Download CSV</button>
+        <button class="btn ghost" id="json" type="button">Download JSON</button>
+        <button class="btn ghost" id="out" type="button">Sign out</button>
+      </div>
+    </div>
+
+    <div id="tiles" class="tiles" style="margin-bottom:20px"></div>
+
+    <section class="panel" style="margin-bottom:20px">
+      <h2>Where runs came from — city level</h2>
+      <div id="map"></div>
+      <p class="sub" style="margin-top:10px">One dot per reported city. This is the detail the public page withholds.</p>
+    </section>
+
+    <div class="grid cols-2" style="margin-bottom:20px">
+      <section class="panel"><h2>Countries</h2><div id="countries"></div></section>
+      <section class="panel"><h2>Cities</h2><div id="cities"></div></section>
+    </div>
+
+    <div class="grid cols-3" style="margin-bottom:20px">
+      <section class="panel"><h2>Operating system</h2><div id="os"></div></section>
+      <section class="panel"><h2>Browser</h2><div id="browser"></div></section>
+      <section class="panel"><h2>Device</h2><div id="device"></div></section>
+    </div>
+
+    <section class="panel" style="margin-bottom:20px">
+      <h2>Runs per day</h2>
+      <div id="daily"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Raw rows <span class="sub" id="rowCount" style="text-transform:none; letter-spacing:0"></span></h2>
+      <div class="row" style="margin-bottom:12px">
+        <input type="text" id="filter" placeholder="Filter — name, country, city, browser, IP…" aria-label="Filter rows" style="flex:1 1 280px">
+      </div>
+      <div class="scroll"><table>
+        <thead id="rawHead"></thead>
+        <tbody id="raw"></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <p class="sub" style="margin-top:20px"><a class="link" href="index.html">← Back to the game</a> · <a class="link" href="stats.html">public records</a></p>
+</div>
+
+<script src="assets/world.js"></script>
+<script src="assets/panel.js"></script>
+<script>
+(() => {
+  const { API, $, esc, num, dur, when, drawMap, drawBars, tiles } = window.P;
+  const KEY = 'sortie.admin.token';
+  // sessionStorage, not localStorage: the token dies with the tab rather than sitting on the
+  // machine for twelve hours after someone has walked away from it.
+  const getTok = () => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } };
+  const setTok = (t) => { try { t ? sessionStorage.setItem(KEY, t) : sessionStorage.removeItem(KEY); } catch { /* unavailable */ } };
+  let data = null;
+
+  async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+      ...opts,
+      headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + getTok() },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.status === 401) { signOut('Session expired. Sign in again.'); throw new Error('unauthorised'); }
+    if (!res.ok) throw new Error(res.status);
+    return res;
+  }
+
+  function signOut(msg) {
+    setTok('');
+    data = null;
+    $('app').hidden = true;
+    $('gate').hidden = false;
+    $('loginMsg').innerHTML = msg ? `<span class="err">${esc(msg)}</span>` : 'Eight attempts per quarter hour. A session lasts twelve hours.';
+    $('pw').value = '';
+  }
+
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('go');
+    btn.disabled = true;
+    $('loginMsg').textContent = 'Checking…';
+    try {
+      const res = await fetch(API + '/admin/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: $('pw').value }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { $('loginMsg').innerHTML = `<span class="err">${esc(j.error || 'Refused.')}</span>`; return; }
+      setTok(j.token);
+      $('pw').value = '';
+      await load();
+    } catch {
+      $('loginMsg').innerHTML = '<span class="err">Could not reach the server.</span>';
+    } finally { btn.disabled = false; }
+  });
+
+  $('refresh').addEventListener('click', () => load());
+  $('out').addEventListener('click', () => signOut());
+  $('filter').addEventListener('input', () => drawRows());
+  for (const [id, ext] of [['csv', 'csv'], ['json', 'json']]) {
+    $(id).addEventListener('click', async () => {
+      const btn = $(id);
+      btn.disabled = true;
+      try {
+        // Fetched rather than linked: the download needs the Authorization header, which a
+        // plain <a href> cannot carry.
+        const res = await api('/admin/export.' + ext);
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sortie-${new Date().toISOString().slice(0, 10)}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } catch { /* signOut already reported it */ } finally { btn.disabled = false; }
+    });
+  }
+
+  async function load() {
+    try {
+      data = await (await api('/admin/rows?limit=5000')).json();
+    } catch { return; }
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    const s = data.stats || {}, t = s.totals || {};
+    $('sessionMsg').textContent = `${num(data.total)} rows · ${num(data.flagged)} flagged · loaded ${when(new Date().toISOString())}`;
+    tiles($('tiles'), [
+      ['Runs recorded', num(t.runs)],
+      ['Time in the cockpit', dur(t.seconds), true],
+      ['Average run', dur(t.avgSeconds), true],
+      ['Longest run', dur(t.longest), true],
+      ['Deepest wave', num(t.deepestWave)],
+      ['Average wave', (Number(t.avgWave) || 0).toFixed(1)],
+      ['Distinct countries', num((s.countries || []).length)],
+      ['Flagged runs', num(data.flagged)],
+    ]);
+    drawMap($('map'), (data.cities || []).map((c) => ({
+      lat: c.lat, lon: c.lon, n: c.n, label: `${c.city}, ${c.country} · ${c.n} run${c.n === 1 ? '' : 's'}`,
+    })));
+    drawBars($('countries'), s.countries, { empty: 'no locations yet' });
+    drawBars($('cities'), (data.cities || []).map((c) => ({ k: `${c.city}, ${c.country}`, n: c.n })), { empty: 'no cities yet' });
+    drawBars($('os'), s.os); drawBars($('browser'), s.browser); drawBars($('device'), s.device);
+    drawBars($('daily'), (s.daily || []).slice().reverse(), { key: 'day' });
+    $('rawHead').innerHTML = '<tr>' + (data.columns || []).map((c) => `<th>${esc(c)}</th>`).join('') + '</tr>';
+    drawRows();
+  }
+
+  function drawRows() {
+    if (!data) return;
+    const q = $('filter').value.trim().toLowerCase();
+    const rows = q
+      ? data.rows.filter((r) => data.columns.some((c) => String(r[c] ?? '').toLowerCase().includes(q)))
+      : data.rows;
+    $('rowCount').textContent = q ? `· ${num(rows.length)} of ${num(data.rows.length)} shown` : `· ${num(rows.length)} shown`;
+    $('raw').innerHTML = rows.length
+      ? rows.slice(0, 1500).map((r) => '<tr>' + data.columns.map((c) => {
+          const v = r[c];
+          const cls = typeof v === 'number' ? ' class="n"' : '';
+          const text = c === 'ua' ? String(v ?? '').slice(0, 60) : c === 'seconds' ? dur(v) : String(v ?? '');
+          return `<td${cls} title="${esc(v ?? '')}">${esc(text)}</td>`;
+        }).join('') + '</tr>').join('')
+      : '<tr><td class="empty">nothing matches</td></tr>';
+  }
+
+  if (getTok()) load(); else signOut();
+})();
+</script>
+</body>
+</html>

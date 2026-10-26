@@ -1,0 +1,82 @@
+/* Shared chrome for the record pages. The game's own palette and type, so the two read as one
+   thing; the game itself keeps its styles inline because it is a single file by design. */
+:root {
+  --void: #03050a;
+  --ink: #e8f4ff;
+  --dim: #8396ab;
+  --hud: #8ff3ff;
+  --amber: #ffb547;
+  --red: #ff4d5e;
+  --green: #6dff9e;
+  --panel: rgba(6, 14, 24, 0.84);
+  --line: rgba(143, 243, 255, 0.26);
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --mono: "Share Tech Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--void); color: var(--ink); font-family: var(--display); }
+body {
+  min-height: 100vh;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px calc(env(safe-area-inset-bottom, 0px) + 48px);
+  background-image: radial-gradient(1200px 700px at 70% -10%, rgba(74, 40, 120, 0.4), transparent 60%),
+                    radial-gradient(900px 600px at 10% 110%, rgba(10, 60, 90, 0.35), transparent 60%);
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--hud); }
+h1.name { margin: 0; font-weight: 700; font-size: clamp(30px, 5vw, 54px); line-height: 0.98; letter-spacing: 0.04em; text-wrap: balance; }
+h1.name span { display: block; color: var(--hud); font-weight: 400; letter-spacing: 0.18em; font-size: 0.42em; margin-top: 0.35em; }
+.lede { margin: 0; max-width: 68ch; font-size: 15px; line-height: 1.55; color: var(--dim); }
+.panel { position: relative; min-width: 0; border: 1px solid var(--line); background: var(--panel); padding: 16px 18px; }
+.panel::before, .panel::after { content: ""; position: absolute; width: 10px; height: 10px; border-color: var(--hud); border-style: solid; }
+.panel::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.panel::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.panel > h2 { margin: 0 0 12px; font-family: var(--mono); font-weight: 400; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--hud); }
+.grid { display: grid; gap: 16px; }
+.cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.cols-3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); padding: 12px 14px; min-width: 0; }
+.tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+.tile .v { font-family: var(--mono); font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; margin-top: 4px; overflow-wrap: anywhere; }
+.tile .v.sm { font-size: 18px; }
+table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 14px; }
+th { text-align: left; font-weight: 400; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); padding: 0 10px 8px 0; white-space: nowrap; }
+td { padding: 5px 10px 5px 0; border-bottom: 1px solid rgba(143, 243, 255, 0.08); color: var(--dim); white-space: nowrap; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+td.nm { color: var(--ink); letter-spacing: 0.18em; }
+.scroll { overflow: auto; max-height: 60vh; }
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar { display: grid; grid-template-columns: minmax(80px, 1fr) 3fr auto; gap: 10px; align-items: center; font-family: var(--mono); font-size: 13px; }
+.bar .lbl { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.bar .track { height: 8px; background: rgba(143, 243, 255, 0.1); }
+.bar .fill { height: 100%; background: var(--hud); }
+.bar .n { color: var(--dim); font-variant-numeric: tabular-nums; }
+.btn {
+  font-family: var(--display); font-weight: 700; font-size: 14px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--void); background: var(--hud); border: 0; padding: 12px 26px; cursor: pointer;
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+.btn:hover { background: var(--ink); }
+.btn.ghost { color: var(--hud); background: none; border: 1px solid var(--line); clip-path: none; }
+.btn.ghost:hover { color: var(--void); background: var(--hud); }
+.btn:disabled { opacity: 0.5; cursor: progress; }
+.row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.sub { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--dim); }
+.link { color: var(--hud); text-decoration: none; border-bottom: 1px solid transparent; }
+.link:hover { border-bottom-color: var(--hud); }
+.err { color: var(--red); }
+input[type="password"], input[type="text"] {
+  font-family: var(--mono); font-size: 16px; color: var(--ink); background: rgba(3, 5, 10, 0.7);
+  border: 1px solid var(--line); padding: 12px 14px; min-width: 0; width: 100%;
+}
+input:focus-visible, .btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+/* The map. One equirectangular plot, land in outline, one dot per place. */
+.map { width: 100%; aspect-ratio: 2 / 1; display: block; background: rgba(3, 10, 18, 0.6); border: 1px solid rgba(143, 243, 255, 0.12); }
+.map .land { fill: rgba(143, 243, 255, 0.09); stroke: rgba(143, 243, 255, 0.34); stroke-width: 0.35; vector-effect: non-scaling-stroke; }
+.map .grat { stroke: rgba(143, 243, 255, 0.1); stroke-width: 0.25; fill: none; vector-effect: non-scaling-stroke; }
+.map .dot { fill: var(--amber); fill-opacity: 0.8; stroke: #fff2d6; stroke-width: 0.3; vector-effect: non-scaling-stroke; }
+.map .halo { fill: var(--amber); fill-opacity: 0.14; }
+.empty { color: var(--dim); font-family: var(--mono); font-size: 13px; padding: 10px 0; }
