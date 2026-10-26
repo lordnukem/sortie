@@ -40,12 +40,24 @@ on the Pages URL but not over plain HTTP.
 
 Wave type is decided in one place, with the boss taking precedence where both divide:
 
-| Wave | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| | fight | fight | storm | **boss** | fight | storm | fight | **boss** | storm | fight | fight | **boss** |
+| Wave | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| | fight | fight | storm | fight | **boss** | storm | fight | fight | storm | **boss** | fight | storm | fight | fight | **boss** |
 
-`BOSS_EVERY = 4` is a single constant. Worth knowing: at 4 this makes half of all waves
-non-dogfight. Raising it to 5 or 6 protects dogfighting as the core of the game.
+`BOSS_EVERY` and `STORM_EVERY` are both single constants, because this is the balance most worth
+revisiting — dogfighting is the core of the game, and every boss or storm is a wave that is not
+one:
+
+| | fights | storms | bosses |
+|---|---|---|---|
+| boss 4, storm 3 | 6/12 = 50% | 3 | 3 |
+| **boss 5, storm 3** (current) | 8/15 = **53%** | 4 | 3 |
+| boss 6, storm 3 | 8/12 = 67% | 2 | 2 |
+| boss 5, storm 4 | 12/20 = 60% | 4 | 4 |
+
+Worth knowing: moving the boss from every 4th to every 5th only gains three points, because the
+**storms** are the more frequent interruption. If dogfighting still feels diluted, `STORM_EVERY`
+is the larger lever.
 
 **Objectives are bonus only** — they cannot fail you, and the only way to lose is still to run
 out of fighters. Flat points would be ignored, though: next to a 10,000-point storm clear and an
