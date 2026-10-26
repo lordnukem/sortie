@@ -88,6 +88,19 @@ flights arrive every ~9 seconds at the start and every ~4 by the end, and the st
 Halcyon's relief flight jumps in and the spawning stops — not when something dies. It is the only
 stage whose clock the player cannot shorten, which is the whole point of it.
 
+Relief is a flight, not a ship. It tops the player's formation back up to three — Gold Two, Three
+and Four — each one arriving out of its own jump flash, so the number that jumps in is the number
+on the wing afterwards. Anyone who survived the hold-out is patched up at the same time.
+
+## Your flight
+
+Up to three fighters fly with the player, from two sources: a pilot freed by shooting down a
+Warden that is carrying one, and the relief flight that ends a hold-out. They hold station on the
+right wing, the left wing and high trail; that third station is above and behind rather than a
+third abreast, because two ships on the same side at these speeds read as one contact. Each has
+40 hull and its own callsign on the HUD, they pick their own targets when the player has none,
+and the Swarm will choose one of them over the player about 30% of the time.
+
 ## The ace
 
 One elite fighter: faster and tighter-turning than the player, so unlike everything else in the

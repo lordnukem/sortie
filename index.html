@@ -169,8 +169,8 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
         </div>
       </div>
     </div>
-    <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Stick forward dives, like a flight sim; press <b>I</b> (or controller Back) to swap. Hold a target in your sights to lock missiles. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b>.</p>
-    <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
+    <p class="note">The first waves are a gentle warm-up; the Swarm sharpens up every wave. Stick forward dives, like a flight sim; press <b>I</b> (or controller Back) to swap. Hold a target in your sights to lock missiles. Shoot down a Warden carrying a captured fighter and that pilot joins you as a <b>wingman</b> &mdash; up to three fly with you, and a hold-out's relief flight fills the formation.</p>
+    <p class="note">Every fifth wave is a <b>boss</b>, and there are three of them in rotation. A <b>hive ship</b>: your guns do nothing to its hull, so strip the four <b>emitter pods</b>, one on each face, and the core opens up — missiles hit a pod four times as hard as anything else. A <b>hold-out</b>: no capital ship, just an unending swarm, and the stage ends when Halcyon's relief flight of three arrives rather than when something dies. A <b>Swarm ace</b>: one elite pilot that out-turns you, breaks off three times to call escorts, and patches itself up while they live. Asteroids drift through every wave as cover, as a hazard, and as a bonus.</p>
     <p class="note">Each wave lists its <b>objectives</b>. They are bonuses, not conditions — you cannot fail one, and the only way to lose is to run out of fighters. Each one met raises that wave's score multiplier; clear them all and two extra missiles are loaded for the next wave.</p>
     <p class="note"><b>Do not ram anything.</b> A collision costs you far more than it costs them, and the heavy ships simply shrug it off and keep shooting.</p>
     <div class="actions">
@@ -2747,7 +2747,7 @@ let score = 0, lives = 3, wave = 0, kills = 0, shots = 0, hits = 0, rocksDestroy
 let hi = loadHi();
 let enemies = [], bolts = [], missiles = [], rocks = [];
 const rockSpawns = [];
-let wingman = null;
+let wings = [];
 let spawnQueue = [], waveT = 0, waveActive = false, nextWaveT = -1, overT = -1, titleT = 0, clock = 0;
 let holdout = null;         // the survive-until-relief stage, when one is running
 // Objectives are BONUS ONLY: they cannot fail you, and the only way to lose is still to run out
@@ -2861,7 +2861,8 @@ function leadPoint(from, tgt, speed, out) {
 
 const preyAlive = (p) => (p === PLAYER ? player.alive : !!p && !p.dead);
 function pickPrey(e) {
-  if (wingman && !wingman.dead && (!player.alive || Math.random() < 0.3)) e.prey = wingman;
+  const live = wings.filter((w) => !w.dead);
+  if (live.length && (!player.alive || Math.random() < 0.3)) e.prey = live[(Math.random() * live.length) | 0];
   else e.prey = player.alive ? PLAYER : null;
 }
 
@@ -3116,7 +3117,7 @@ function killEnemy(e, credit) {
   explode(e.obj.position, e.d.color, e.r / 3.2, e.type === 'warden');
   if (player.capturing && player.capturing.w === e) releaseCapture();
   if (e.captive) {
-    if (!wingman) spawnWingman(e.obj.position.clone());
+    if (wings.length < WING_MAX) spawnWingman(e.obj.position.clone());
     else { addScore(1000); comm('HALCYON', 'Rescue shuttle has the captured pilot. Nice shooting. +1000', 'friend'); }
   }
   if (e.type === 'boss') {
@@ -3211,13 +3212,15 @@ function relieve() {
   holdout.relieved = true;
   const pp = player.alive ? player.rig.position : LAUNCH_POS;
   const fwd = FWD.clone().applyQuaternion(player.rig.quaternion);
-  // Three jump flashes off the player's wing, so relief arriving is something you see rather
-  // than something the comms tell you about.
-  for (let i = 0; i < 3; i++) {
-    jumpFlash(pp.clone().addScaledVector(fwd, rand(110, 190)).add(V(rand(-70, 70), rand(-25, 45), rand(-70, 70))));
+  // Whoever survived the hold-out gets patched up, and the flight is topped back up to strength
+  // -- each ship arriving out of its own flash, so the number that jumped in is the number you
+  // then see on your wing.
+  for (const w of wings) w.hp = WING_HP;
+  for (let i = wings.length; i < WING_MAX; i++) {
+    const at = pp.clone().addScaledVector(fwd, rand(110, 190)).add(V(rand(-70, 70), rand(-25, 45), rand(-70, 70)));
+    jumpFlash(at);
+    spawnWingman(at, true);
   }
-  if (!wingman) spawnWingman(pp.clone().addScaledVector(fwd, 120).add(V(rand(-40, 40), 20, rand(-40, 40))));
-  else wingman.hp = 40;
   showBanner('RELIEF ON STATION', 'No more jumps inbound · clean up', 4);
   comm('HALCYON', 'Relief flight is on station. No further Swarm jumps detected — finish what is left out there.', 'friend');
   voice.say(['relief-1', 'relief-2'], { key: 'relief', cooldown: 4, urgent: true });
@@ -3400,8 +3403,21 @@ function updateBoss(e, dt) {
   emitTrail(e, 0.5);
 }
 
-// ---------------------------------------------------------------- wingman (a pilot rescued from a Warden)
-function spawnWingman(pos) {
+// ---------------------------------------------------------------- your flight (rescued pilots and relief)
+// Three is the cap: it is the most the HUD can name without a list, and the most that can hold a
+// readable formation on the player's wings.
+const WING_MAX = 3, WING_HP = 40;
+const WING_NAME = ['GOLD TWO', 'GOLD THREE', 'GOLD FOUR'];
+// The HUD shouts; Halcyon speaks. Same ship, two registers.
+const WING_LABEL = ['Gold Two', 'Gold Three', 'Gold Four'];
+// Right wing, left wing, and high trail. The third station is deliberately not a third abreast
+// position: two ships on the same side at these speeds read as one contact and trade paint.
+const WING_SLOT = [[18, 2, 12], [-18, 2, 12], [0, 14, 34]];
+function spawnWingman(pos, quiet = false) {
+  if (wings.length >= WING_MAX) return null;
+  const taken = wings.map((w) => w.slot);
+  let slot = 0;
+  while (taken.includes(slot)) slot++;
   const obj = buildFriendly(false);
   obj.position.copy(pos);
   scene.add(obj);
@@ -3409,16 +3425,22 @@ function spawnWingman(pos) {
   look.position.copy(pos);
   look.lookAt(player.rig.position);
   obj.quaternion.copy(look.quaternion);
-  wingman = { obj, heading: look.quaternion.clone(), bank: 0, speed: 40, vel: V(), turn: 1.9, hp: 40, r: 3, fireCd: 0, dead: false };
-  comm('GOLD TWO', 'Thanks for the rescue, Lead. Forming up on your right wing.', 'wing');
-  voice.say(['rescue-1', 'rescue-2'], { key: 'rescue', cooldown: 2, urgent: true });
-  sfx.rescued();
-  addScore(500);
+  const w = { obj, slot, name: WING_NAME[slot], label: WING_LABEL[slot], heading: look.quaternion.clone(), bank: 0, speed: 40, vel: V(), turn: 1.9, hp: WING_HP, r: 3, fireCd: 0, dead: false };
+  wings.push(w);
+  // Relief ships announce themselves once, through relieve(); a rescued pilot speaks for itself.
+  if (!quiet) {
+    comm(w.name, 'Thanks for the rescue, Lead. Forming up on your wing.', 'wing');
+    voice.say(['rescue-1', 'rescue-2'], { key: 'rescue', cooldown: 2, urgent: true });
+    sfx.rescued();
+    addScore(500);
+  }
+  return w;
 }
 const _wa = V(), _wf = V(), _wd = V();
-function updateWingman(dt) {
-  const w = wingman;
-  if (!w) return;
+function updateWings(dt) {
+  for (const w of wings) if (!w.dead) updateWingman(w, dt);
+}
+function updateWingman(w, dt) {
   let tgt = player.target && !player.target.dead ? player.target : null;
   if (!tgt) {
     let best = 450 * 450;
@@ -3441,7 +3463,7 @@ function updateWingman(dt) {
       w.fireCd = 0.3;
     }
   } else if (player.alive) {
-    _wa.set(16, 2, 10).applyQuaternion(player.rig.quaternion).add(player.rig.position);
+    _wa.set(...WING_SLOT[w.slot]).applyQuaternion(player.rig.quaternion).add(player.rig.position);
     const gap = w.obj.position.distanceTo(_wa);
     _wa.addScaledVector(player.vel, 0.6);
     steer(w, _wa, dt, player.speed + clamp(gap * 0.6, -20, 30));
@@ -3450,16 +3472,14 @@ function updateWingman(dt) {
   }
   emitTrail(w, 0.35);
 }
-function damageWingman(dmg) {
-  const w = wingman;
+function damageWingman(w, dmg) {
   w.hp -= dmg;
   if (w.hp > 0) return;
   w.dead = true;
   explode(w.obj.position, 0xdfe6ff, 1, false);
   scene.remove(w.obj);
   disposeObj(w.obj);
-  wingman = null;
-  comm('HALCYON', 'Gold Two is down. Pilot ejected; we will pick them up.', 'warn');
+  comm('HALCYON', `${w.label} is down. Pilot ejected; we will pick them up.`, 'warn');
   voice.say(['wingdown-1', 'wingdown-2'], { key: 'wingdown', cooldown: 2 });
 }
 
@@ -3517,7 +3537,12 @@ function updateRocks(dt) {
     for (const e of enemies) {
       if (!e.dead && e.state !== 'show' && e.obj.position.distanceTo(k.obj.position) < k.r + e.r * 0.6) { damageEnemy(e, 99, false); splitRock(k, false); break; }
     }
-    if (!k.dead && wingman && wingman.obj.position.distanceTo(k.obj.position) < k.r + 2.5) { damageWingman(20); splitRock(k, false); }
+    if (!k.dead) {
+      for (const w of wings) {
+        if (w.dead || w.obj.position.distanceTo(k.obj.position) >= k.r + 2.5) continue;
+        damageWingman(w, 20); splitRock(k, false); break;
+      }
+    }
   }
 }
 
@@ -3549,7 +3574,11 @@ function updateBolts(dt) {
     if (b.owner === 'enemy') {
       if (player.alive && player.inv <= 0 && segHit(b.prev, b.pos, player.rig.position, 3.4)) { b.dead = true; damagePlayer(b.dmg, b.prev); continue; }
       if (!b.whiz && player.alive && segHit(b.prev, b.pos, player.rig.position, 9)) { b.whiz = true; const p = panAt(b.pos); sfx.whiz(p, -p); }
-      if (wingman && segHit(b.prev, b.pos, wingman.obj.position, 3)) { b.dead = true; damageWingman(b.dmg); continue; }
+      for (const w of wings) {
+        if (w.dead || !segHit(b.prev, b.pos, w.obj.position, 3)) continue;
+        b.dead = true; damageWingman(w, b.dmg); break;
+      }
+      if (b.dead) continue;
     } else {
       for (const e of enemies) {
         if (!e.dead && e.state !== 'show' && segHit(b.prev, b.pos, e.obj.position, e.r)) {
@@ -4049,8 +4078,8 @@ function clearWorld() {
   for (const b of bolts) scene.remove(b.m);
   for (const s of missiles) scene.remove(s.m);
   for (const k of [...rocks, ...rockSpawns]) scene.remove(k.obj);
-  if (wingman) { scene.remove(wingman.obj); disposeObj(wingman.obj); }
-  enemies = []; bolts = []; missiles = []; rocks = []; rockSpawns.length = 0; wingman = null;
+  for (const w of wings) { scene.remove(w.obj); disposeObj(w.obj); }
+  enemies = []; bolts = []; missiles = []; rocks = []; rockSpawns.length = 0; wings = [];
   spawnQueue = []; comms = []; holdout = null;
 }
 function startGame() {
@@ -4631,7 +4660,7 @@ function drawHud() {
     oy += 15;
     for (const o of objectives) {
       const prog = o.id === 'fast' ? `${Math.min(waveT, o.need).toFixed(0)}/${o.need}s`
-        : o.need > 1 ? `${Math.min(o.got, o.need)}/${o.need}` : '';
+        : o.need > 1 ? `${Math.round(Math.min(o.got, o.need))}/${o.need}` : '';
       // `fast` counts down against you, so it is only green once the wave is actually over.
       const good = o.done;
       c.font = FONT(11, good ? 700 : 400);
@@ -4676,9 +4705,10 @@ function drawHud() {
   c.fillText(String(Math.max(0, lives - (player.alive || player.capturing ? 1 : 0))), W - 16, 40);
   c.font = MONO(16);
   c.fillText(String(kills), W - 16, 75);
-  if (wingman) {
+  if (wings.length) {
     c.font = MONO(11); c.fillStyle = C.green;
-    c.fillText(`GOLD TWO ${Math.round((wingman.hp / 40) * 100)}%`, W - 16, 96);
+    let wy = 96;
+    for (const w of wings) { c.fillText(`${w.name} ${Math.round((w.hp / WING_HP) * 100)}%`, W - 16, wy); wy += 13; }
   }
   if (hi > 0) { c.textAlign = 'center'; c.font = MONO(11); c.fillStyle = C.dim; c.fillText(`HIGH ${String(hi).padStart(6, '0')}`, cx, 22); }
 
@@ -4833,7 +4863,7 @@ function drawHud() {
       c.fillText(`${o.done ? '✔' : '✘'} ${o.label}`, px + 12, y);
       if (o.need > 1) {
         c.textAlign = 'right'; c.font = MONO(10);
-        c.fillText(`${Math.min(o.got, o.need)}/${o.need}`, px + pw - 12, y);
+        c.fillText(`${Math.round(Math.min(o.got, o.need))}/${o.need}`, px + pw - 12, y);
         c.textAlign = 'left';
       }
       y += 18;
@@ -4981,7 +5011,7 @@ function drawScope(c, x, y, R, front) {
   blip(CARRIER_POS, '#5aa8ff', 6);
   for (const k of rocks) if (!k.dead) blip(k.obj.position, 'rgba(180, 170, 200, 0.8)', k.size + 1);
   for (const e of enemies) if (!e.dead && e.state !== 'show') blip(e.obj.position, e.type === 'raider' ? C.ink : C.red, 3.5, e === player.target);
-  if (wingman) blip(wingman.obj.position, C.green, 3.5);
+  for (const w of wings) if (!w.dead) blip(w.obj.position, C.green, 3.5);
   for (const s of missiles) blip(s.pos, C.amber, 2.5);
   c.restore();
   c.globalAlpha = 1;
@@ -5007,8 +5037,8 @@ function update(dt) {
     if (state === 'play') updatePlayer(dt, inp);
     for (const e of enemies) updateEnemy(e, dt);
     enemies = enemies.filter((e) => !e.dead);
-    updateWingman(dt);
-    if (wingman && wingman.dead) wingman = null;
+    updateWings(dt);
+    if (wings.some((w) => w.dead)) wings = wings.filter((w) => !w.dead);
     updateBolts(dt);
     updateMissiles(dt);
     updateRocks(dt);
