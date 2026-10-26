@@ -102,6 +102,9 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
 .board-scroll .board { will-change: transform; }
+.board-src { display: flex; align-items: baseline; gap: 14px; margin: -4px 0 8px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.board-swap { font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--hud); background: none; border: 0; border-bottom: 1px solid var(--line); padding: 0 0 1px; cursor: pointer; }
+.board-swap:hover { border-bottom-color: var(--hud); }
 @media (max-height: 780px) { .board-scroll { height: 168px; } }
 /* Three separate tables on the controls page, each sizing its own columns, came out ragged.
    Fixing the proportions lines them up as one manual. */
@@ -200,6 +203,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <p class="lede">The Swarm has jumped the Varan system. Launch from the carrier <b>Halcyon</b> and break their attack formations before they reach the fleet.</p>
     <div class="panel" id="tBoardPanel" hidden>
       <h2>Gold leader board</h2>
+      <p class="board-src"><span id="tBoardWhich">This browser</span><button class="board-swap" id="tBoardSwap" type="button" hidden>Show global</button></p>
       <div class="board-scroll" id="tBoardScroll"><table class="board" id="tBoard"></table></div>
     </div>
     <div class="actions">
@@ -298,8 +302,14 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     </div>
     <div class="panel">
       <h2>Saving and the board</h2>
-      <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later, and the pause menu has a <b>Save &amp; quit</b> button for leaving on purpose. Either way you resume at the start of the wave you left. Losing your last fighter ends the run and clears the save.</p>
-      <p class="note">Scores go on a <b>leader board</b> of twenty, three characters each. Both the save and the board live in this browser only — nothing leaves the machine, and clearing site data clears them.</p>
+      <p class="note">The run is <b>saved between waves</b>, so you can close the tab mid-sortie and pick the wave back up later, and the pause menu has a <b>Save &amp; quit</b> button for leaving on purpose. Either way you resume at the start of the wave you left. Losing your last fighter ends the run and clears the save. The save lives in this browser only.</p>
+      <p class="note">There are two <b>leader boards</b> of twenty, three characters each: a <b>global</b> one on the game's own server, and a local one kept in this browser for when the server cannot be reached. A finished run is written to the local board first and sent to the global one afterwards, so a score is never lost to a timeout.</p>
+    </div>
+    <div class="panel">
+      <h2>What the global board records</h2>
+      <p class="note">Posting a score sends the run's numbers — score, wave, kills, shots, hits, asteroids, how long it took — plus your three characters and your device's time zone and local clock.</p>
+      <p class="note">The server additionally records, from the request itself: your <b>IP address</b>, the <b>country, region and city</b> that address resolves to, your <b>browser user-agent string</b>, and the operating system, browser and device type read out of it. These are kept to spot forged scores and to see what the game is being played on. Only the name, score, wave, date and country are ever shown to anyone; the rest is never served back.</p>
+      <p class="note">The lookup from IP to place is done by <a class="link" href="https://ip-api.com/">ip-api.com</a>, which means your IP address is sent to that service and cached here for a month. <b>Nothing is recorded unless you confirm a name on the debrief screen</b> — play without entering one and nothing about you is stored. Playing offline, or with the server unreachable, uses the local board and sends nothing at all.</p>
     </div>
     <div class="panel">
       <h2>Built with</h2>
@@ -358,6 +368,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     </div>
     <div class="panel" id="dBoardPanel" hidden>
       <h2>Gold leader board</h2>
+      <p class="board-src"><span id="dBoardWhich">This browser</span></p>
       <table class="board" id="dBoard"></table>
     </div>
     <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button></div>
@@ -1754,6 +1765,7 @@ const ASSET_URLS = Object.assign({
   shipImperial: 'assets/q_imperial.jpg', shipPancake: 'assets/q_pancake.jpg',
   metalColor: 'assets/metal_color.jpg', metalNormal: 'assets/metal_normal.jpg', metalRough: 'assets/metal_rough.jpg', metalMetal: 'assets/metal_metal.jpg',
   rockColor: 'assets/rock_color.jpg', rockNormal: 'assets/rock_normal.jpg', rockRough: 'assets/rock_rough.jpg',
+  carrierHull: 'assets/carrier_hull.jpg', carrierDeck: 'assets/carrier_deck.jpg',
 }, window.__ASSETS || {});
 const SHIP_LENGTH = { player: 5, drone: 5.6, lancer: 6.4, warden: 14, raider: 8 };
 // Which way each model's nose points along z; flipped where needed so every ship flies along +z.
@@ -1770,6 +1782,7 @@ const THRUSTERS = {
 };
 const MODELS = {};
 const carrierMats = [];
+let deckMap = null;   // the painted flight deck, once it has loaded
 let assetsSettled = false;
 // Centre the model, scale it to a length in metres and turn it so the nose points along +z.
 function prepModel(root, length, nose) {
@@ -1842,15 +1855,29 @@ async function loadAssets() {
     if (state === 'title') { clearWorld(); setupTitle(); }
   } catch (err) { console.warn('Ship models unavailable; using the built-in ships.', err); }
   try {
-    const [mc, mn, mr, mm, rc, rn, rr] = await Promise.all([
-      tex(ASSET_URLS.metalColor, true), tex(ASSET_URLS.metalNormal), tex(ASSET_URLS.metalRough), tex(ASSET_URLS.metalMetal),
+    const [mn, mr, mm, rc, rn, rr, ch, cd] = await Promise.all([
+      tex(ASSET_URLS.metalNormal), tex(ASSET_URLS.metalRough), tex(ASSET_URLS.metalMetal),
       tex(ASSET_URLS.rockColor, true, 2, 1), tex(ASSET_URLS.rockNormal, false, 2, 1), tex(ASSET_URLS.rockRough, false, 2, 1),
+      // The carrier gets plating drawn for it rather than the generic metal everything else
+      // uses: at this size the hull is most of the screen on the way out, and a tiling scrap of
+      // industrial metal was the one thing that gave away how big a flat slab it really is.
+      tex(ASSET_URLS.carrierHull, true, 5, 5),
+      // The deck is 76 by 475 units, so one square image stretched over it would smear the
+      // landing pads six to one. Five repeats down its length is both correct and what a deck
+      // that long would actually be painted like.
+      tex(ASSET_URLS.carrierDeck, true, 1, 5),
     ]);
     for (const m of carrierMats) {
-      Object.assign(m, { map: mc, normalMap: mn, roughnessMap: mr, metalnessMap: mm, bumpMap: null, roughness: 1, metalness: 1 });
-      m.color.set(m.userData.plateColor);
-      m.normalScale.set(1.2, 1.2);
+      Object.assign(m, { map: ch, normalMap: mn, roughnessMap: mr, metalnessMap: mm, bumpMap: null, roughness: 1, metalness: 0.85 });
+      m.color.set(0xffffff);
+      m.normalScale.set(0.8, 0.8);
       m.needsUpdate = true;
+    }
+    deckMap = cd;
+    if (carrierParts.deck && assetsSettled) {
+      carrierParts.deck.material.map = cd;
+      carrierParts.deck.material.color.set(0xffffff);
+      carrierParts.deck.material.needsUpdate = true;
     }
     Object.assign(ROCK_MAT, { map: rc, normalMap: rn, roughnessMap: rr, bumpMap: null, roughness: 1 });
     ROCK_MAT.color.set(0xd8d2dc);
@@ -1863,7 +1890,10 @@ function settleAssets() {
   if (assetsSettled) return;
   assetsSettled = true;
   const old = carrierParts.deck.material;
-  carrierParts.deck.material = new THREE.MeshStandardMaterial({ map: deckTexture(), roughness: 0.85, metalness: 0.3 });
+  // The painted deck, if it has arrived; the generated one is the fallback when it has not.
+  carrierParts.deck.material = new THREE.MeshStandardMaterial({
+    map: deckMap || deckTexture(), color: deckMap ? 0xffffff : 0xcfd4dc, roughness: 0.85, metalness: 0.3,
+  });
   old.dispose();
   $('launchBtn').disabled = false;
   refreshTitle();
@@ -2539,6 +2569,28 @@ function buildCarrier() {
   g.add(edge);
   for (const [x, z] of [[-40, -180], [40, -180], [-46, 60], [46, 60], [-40, 180], [40, 180]]) g.add(part(G.sphere, RUNNING, 1, 1, 1, x, 14, z));
 
+  // Accent strips. The fighters in the asset pack all carry a continuous lit line down the
+  // fuselage, and the carrier had nothing of the sort -- it read as a grey slab with lights
+  // scattered on it. A tube swept along the hull outline follows the taper exactly, where a row
+  // of boxes would stair-step at the bow where the hull narrows fastest.
+  const accent = (y, inset, radius, mat) => {
+    for (const side of [-1, 1]) {
+      const pts = [];
+      for (let z = -322; z <= 180; z += 14) pts.push(V(side * (halfWidthAt(HULL_HALF, z) + inset), y, z));
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, radius, 6, false), mat);
+      g.add(tube);
+    }
+  };
+  accent(15.4, 2.9, 0.45, DECK_LINE);     // the rim of the flight deck
+  accent(-5, 2.9, 0.35, CARRIER_CORE);    // a dimmer line low on the flank
+  // The deck reads as a slab with nothing holding it up. A dark rim under the lip gives it a
+  // thickness and puts the accent strip in shadow instead of floating.
+  for (const side of [-1, 1]) {
+    const pts = [];
+    for (let z = -322; z <= 180; z += 14) pts.push(V(side * (halfWidthAt(HULL_HALF, z) + 2.3), 13.4, z));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length, 1.9, 4, false), darkM));
+  }
+
   // Engine block: five nozzles with glowing cores and flickering plumes
   g.add(texBox(78, 22, 18, darkPlate, 20, 0, -2, 186));
   for (const x of [-28, -14, 0, 14, 28]) {
@@ -2898,7 +2950,7 @@ let hi = loadHi();
 let enemies = [], bolts = [], missiles = [], rocks = [];
 const rockSpawns = [];
 let wings = [];
-let spawnQueue = [], waveT = 0, waveActive = false, nextWaveT = -1, overT = -1, titleT = 0, clock = 0;
+let spawnQueue = [], waveT = 0, runT = 0, waveActive = false, nextWaveT = -1, overT = -1, titleT = 0, clock = 0;
 let holdout = null;         // the survive-until-relief stage, when one is running
 // Objectives are BONUS ONLY: they cannot fail you, and the only way to lose is still to run out
 // of fighters. Flat points would be ignored, though -- next to a 10,000-point storm clear and an
@@ -2986,7 +3038,7 @@ function saveRun() {
   if (state !== 'play') return;
   writeJSON(SAVE_KEY, {
     v: SAVE_V, at: Date.now(), wave, score, lives, kills, shots, hits,
-    rocks: rocksDestroyed, nextExtra, carryMissiles,
+    rocks: rocksDestroyed, nextExtra, carryMissiles, seconds: runT,
     hull: player.hull, shield: player.shield, missiles: player.missiles,
     // No flight: it is checkpointed at the top of a wave and the flight stands down at the end
     // of the one before, so there is never anybody on the wing at this moment.
@@ -3000,6 +3052,56 @@ function loadRun() {
   // be able to drop the game into a wave it cannot construct.
   if (!Number.isFinite(r.wave) || r.wave < 1 || r.wave > 9999) return null;
   return r;
+}
+
+// ---------------------------------------------------------------- the global board
+// A small service on the VPS, reached over HTTPS. Everything here degrades: if it cannot be
+// reached the game shows this browser's own board and says so, and a score is always written
+// locally whether or not it also goes up.
+// Same origin wherever the page is served by the game's own nginx -- which includes the bare
+// IP, so the VPS copy works before the named host has a certificate. Everywhere else (GitHub
+// Pages above all) has to name the host, and that fetch only succeeds once TLS is in place:
+// an https page may not fetch http, and no browser offers a way round it.
+const API = ['sortie.questfor.ge', '72.62.196.152', '127.0.0.1', 'localhost'].includes(location.hostname)
+  ? '/api' : 'https://sortie.questfor.ge/api';
+let globalBoard = null;      // rows from the server, or null while unreachable
+let globalTried = false;
+let boardView = 'global';    // which one the title screen is showing
+async function fetchGlobal() {
+  globalTried = true;
+  try {
+    const res = await fetch(`${API}/scores?limit=${BOARD_MAX}`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error(res.status);
+    const j = await res.json();
+    globalBoard = Array.isArray(j.board) ? j.board : null;
+  } catch { globalBoard = null; }
+  return globalBoard;
+}
+// What the run actually was, for the server to sanity-check against the score. None of it is
+// proof -- anyone reading the client can forge all of it -- but it keeps `curl -d score=9999999`
+// out of the table, which is most of what a public board suffers from.
+function runTelemetry(name, sc, wv) {
+  return {
+    name, score: sc, wave: wv,
+    kills, shots, hits, rocks: rocksDestroyed,
+    seconds: Math.round(runT),
+    tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } })(),
+    localTime: new Date().toString().slice(0, 33),
+  };
+}
+async function postGlobal(name, sc, wv) {
+  try {
+    const res = await fetch(`${API}/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(runTelemetry(name, sc, wv)),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, why: j.why || j.error || res.status };
+    globalBoard = Array.isArray(j.board) ? j.board : globalBoard;
+    return { ok: true, rank: j.rank };
+  } catch (err) { return { ok: false, why: 'offline' }; }
 }
 
 function loadBoard() {
@@ -3018,6 +3120,14 @@ function boardRank(sc) {
   const b = loadBoard();
   let i = 0;
   while (i < b.length && b[i].score >= sc) i++;
+  return i < BOARD_MAX ? i : -1;
+}
+// Where a score would land on the global board, or -1 if it would not make it -- and -1 as well
+// when the board is unreachable, so the local board alone decides in that case.
+function globalRank(sc) {
+  if (!globalBoard || sc <= 0) return -1;
+  let i = 0;
+  while (i < globalBoard.length && globalBoard[i].score >= sc) i++;
   return i < BOARD_MAX ? i : -1;
 }
 function postScore(name, sc, wv) {
@@ -4520,6 +4630,7 @@ function waveComplete() {
 }
 function updateFlow(dt) {
   waveT += dt;
+  runT += dt;
   while (spawnQueue.length && spawnQueue[0].t <= waveT) {
     const s = spawnQueue.shift();
     if (s.type === 'raider') spawnRaider(); else spawnFlight(s.type, s.count);
@@ -4571,7 +4682,7 @@ function startGame() {
   dropKey(SAVE_KEY);
   clearWorld();
   score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
-  objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0;
+  objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0; runT = 0;
   resetPlayer();
   player.missiles = 6;
   state = 'play';
@@ -4600,6 +4711,7 @@ function continueGame(r) {
   carryMissiles = r.carryMissiles | 0;
   sortieLog = Array.isArray(r.log) ? r.log : [];
   objectives = []; waveMark = null;
+  runT = Number.isFinite(r.seconds) ? r.seconds : 0;
   resetPlayer();
   player.hull = clamp(Number.isFinite(r.hull) ? r.hull : 100, 1, 100);
   player.shield = clamp(Number.isFinite(r.shield) ? r.shield : 100, 0, 100);
@@ -4648,13 +4760,17 @@ function updateBoardScroll() {
 }
 function resetBoardScroll() { boardY = 0; boardHold = 1.6; boardAtEnd = false; boardLast = 0; }
 
-function renderBoard(el, mine = -1) {
-  const b = loadBoard();
+function renderBoard(el, mine = -1, rows = null) {
+  const b = rows || loadBoard();
   el.innerHTML = b.map((e, i) => `<tr class="${i === mine ? 'you' : ''}">
-    <td class="r">${i + 1}</td><td class="nm">${e.name}</td>
-    <td class="sc">${e.score.toLocaleString()}</td><td class="wv">W${e.wave}</td></tr>`).join('');
+    <td class="r">${i + 1}</td><td class="nm">${esc(e.name)}</td>
+    <td class="sc">${(e.score | 0).toLocaleString()}</td><td class="wv">W${e.wave | 0}</td></tr>`).join('');
   return b.length;
 }
+// Board rows come off a public endpoint, so they are other people's text. Three characters that
+// passed the server's own check should be harmless, but the table is built by concatenation and
+// this is the one place a stranger's string reaches it.
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // A letter wheel rather than a text field: it is the arcade gesture, and three buttons per slot
 // means a phone gets the same control as a keyboard with no second code path.
@@ -4675,7 +4791,10 @@ function openEntry(sc, wv) {
   try { seed = (localStorage.getItem('sortie.name') || 'AAA').toUpperCase(); } catch { /* storage unavailable */ }
   const at = [0, 1, 2].map((n) => Math.max(0, ENTRY_CHARS.indexOf(seed[n] || 'A')));
   entry = { at, cur: 0, score: sc, wave: wv };
-  $('dEntryTitle').textContent = `You made the board at #${boardRank(sc) + 1} — enter your name`;
+  const g = globalRank(sc), l = boardRank(sc);
+  $('dEntryTitle').textContent = g >= 0
+    ? `#${g + 1} on the global board — enter your name`
+    : `#${l + 1} on this browser's board — enter your name`;
   $('dEntryPanel').hidden = false;
   drawEntry();
 }
@@ -4694,12 +4813,27 @@ function moveEntry(dir) {
 function confirmEntry() {
   if (!entry) return;
   const name = entryName();
+  const { score: sc, wave: wv } = entry;
   try { localStorage.setItem('sortie.name', name); } catch { /* storage unavailable */ }
-  const mine = postScore(name, entry.score, entry.wave);
+  // The local board is written first and unconditionally: the run happened whether or not the
+  // network agrees, and the player should never lose a score to a timeout.
+  const mine = postScore(name, sc, wv);
   entry = null;
   $('dEntryPanel').hidden = true;
   $('dBoardPanel').hidden = renderBoard($('dBoard'), mine) === 0;
+  $('dBoardWhich').textContent = 'This browser · sending…';
   sfx.rescued();
+  postGlobal(name, sc, wv).then((out) => {
+    if (out.ok && globalBoard) {
+      const at = globalBoard.findIndex((e) => e.name === name && e.score === sc);
+      renderBoard($('dBoard'), at, globalBoard);
+      $('dBoardWhich').textContent = `Global · you are #${out.rank}`;
+    } else {
+      $('dBoardWhich').textContent = out.why === 'offline'
+        ? 'This browser · the global board could not be reached'
+        : `This browser · the global board refused the run (${out.why})`;
+    }
+  });
 }
 
 function gameOver() {
@@ -4733,8 +4867,12 @@ function gameOver() {
   entry = null;
   $('dEntryPanel').hidden = true;
   const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
-  if (boardRank(score) >= 0) openEntry(score, wavesFlown);
-  $('dBoardPanel').hidden = renderBoard($('dBoard')) === 0;
+  // Either board is reason enough to ask for a name: a score can miss this browser's top twenty
+  // and still make the global one, and the reverse is just as likely on a shared machine.
+  if (boardRank(score) >= 0 || globalRank(score) >= 0) openEntry(score, wavesFlown);
+  const showGlobal = globalBoard && globalBoard.length;
+  $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
+  $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null) === 0;
   $('over').hidden = false;
   overShown = performance.now();
 }
@@ -4841,6 +4979,9 @@ window.addEventListener('popstate', routeHash);
 // The title screen reads the saved run every time it is shown, so quitting mid-run and coming
 // back offers the continue without a reload.
 function refreshTitle() {
+  // Asked for once per visit to the title, not per frame: a board that is a few minutes stale is
+  // not worth a request every time the screen is redrawn.
+  fetchGlobal().then(drawTitleBoard);
   const r = loadRun();
   const cont = $('continueBtn');
   cont.hidden = !r;
@@ -4849,7 +4990,19 @@ function refreshTitle() {
   $('startHint').textContent = r
     ? 'Enter or A continues · N or X starts a new sortie'
     : 'Enter · controller Start or A';
-  $('tBoardPanel').hidden = renderBoard($('tBoard')) === 0;
+  drawTitleBoard();
+}
+function drawTitleBoard() {
+  const useGlobal = boardView === 'global' && globalBoard && globalBoard.length;
+  const rows = useGlobal ? globalBoard : loadBoard();
+  const n = renderBoard($('tBoard'), -1, rows);
+  $('tBoardPanel').hidden = n === 0 && boardView === 'local';
+  $('tBoardWhich').textContent = useGlobal ? 'Global'
+    : globalBoard === null && globalTried ? 'This browser · the global board is unreachable'
+    : 'This browser';
+  $('tBoardSwap').hidden = !(globalBoard && globalBoard.length);
+  $('tBoardSwap').textContent = useGlobal ? 'Show this browser' : 'Show global';
+  if (n === 0) $('tBoard').innerHTML = '<tr><td class="r"></td><td class="nm">—</td><td class="sc">no scores yet</td><td class="wv"></td></tr>';
   resetBoardScroll();
 }
 
@@ -5157,6 +5310,10 @@ function updateTouchUI() {
 }
 
 $('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) startGame(); });
+$('tBoardSwap').addEventListener('click', () => {
+  boardView = boardView === 'global' ? 'local' : 'global';
+  drawTitleBoard();
+});
 $('controlsBack').addEventListener('click', () => closeView());
 $('aboutBack').addEventListener('click', () => closeView());
 $('pauseControls').addEventListener('click', () => openView('controls', { hash: false }));

@@ -243,6 +243,20 @@ twelve, quit, continue, and the wave restarts with those eleven still counted.
 The flight is not in the save. A save is only ever written at the top of a wave, and the flight
 stands down at the end of the one before, so there is never anybody on the wing at that moment.
 
+There are two boards. The **global** one lives on the game's own server — see
+[`server/`](server/) for what it stores, what it refuses, and why none of it is taken from the
+client. The **local** one is the fallback below, and it is what you get with no network.
+
+A finished run is written locally first and sent to the server afterwards, so a score is never
+lost to a timeout. The title screen prefers the global board and says which one it is showing,
+with a link to swap. A score is offered a name if it would make *either* board: it can miss this
+browser's top twenty and still make the global one, and the reverse is just as likely on a
+shared machine.
+
+GitHub Pages is HTTPS and an HTTPS page may not fetch `http://` — there is no override for
+that — so the global board needs the API on HTTPS. The VPS copy reaches it same-origin either
+way.
+
 **The board** (`sortie.board`) is twenty rows of three characters. Ties go below the score already
 standing, so getting there first counts for something. A qualifying score opens a letter wheel
 on the debrief: up and down for a letter, left and right for a slot, `Enter`, Fire or `A` to
@@ -542,6 +556,26 @@ gzip matters here: `assets/ship-models.js` is 1,021 KB raw and 357 KB compressed
 
 That caching split is not cosmetic — a cached page masked a live change during
 testing and reported the old audio graph as though the edit had not applied.
+
+## The carrier
+
+The hull is procedural geometry, so Imagen could not produce the ship itself — what it produced
+was an orthographic concept sheet in the Quaternius style (top, side, front) to model against,
+and then two textures: `assets/carrier_hull.jpg`, large clean armour plates with recessed seams,
+and `assets/carrier_deck.jpg`, a painted flight deck with hazard borders, a dashed centre line
+and numbered landing pads.
+
+The deck is 76 by 475 units, so one square image stretched over it would smear the landing pads
+six to one; it repeats five times down the length instead, which is also what a deck that long
+would actually be painted like. The hull had been wearing the same generic industrial metal as
+everything else, and at that size a tiling scrap of it was the one thing giving away how big a
+flat slab really is.
+
+The concept's own signature was a continuous lit line down the flank — every fighter in the
+asset pack has one and the carrier had nothing of the sort, which is why it read as a grey slab
+with lights scattered on it. There are now two, swept along the hull outline as tubes so they
+follow the taper exactly where a row of boxes would stair-step at the bow, plus a dark rim under
+the deck lip so the deck has a thickness instead of floating.
 
 ## The icon
 
