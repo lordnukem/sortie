@@ -1764,7 +1764,270 @@ function rockTextures(size = 512) {
   return { map, bump };
 }
 const HULL_TEX = hullTextures(7);
-const CARRIER_TEX = hullTextures(19, 1024);
+
+// Dedicated high-resolution procedural texture atlas for the Halcyon supercarrier:
+// multi-tonal composite ceramic-metal armor plating, embedded neon cyan plasma conduits,
+// hazard warning stripes, military stencils, and matching bump/emissive maps.
+function carrierTextures(size = 2048) {
+  const r = seeded(89);
+  const plates = [];
+  const cols = 8, rows = 8;
+  const cw = size / cols, ch = size / rows;
+  for (let c = 0; c < cols; c++) {
+    for (let row = 0; row < rows; row++) {
+      const x0 = c * cw, y0 = row * ch;
+      const sub = r();
+      if (sub < 0.35) {
+        plates.push({ x: x0 + 2, y: y0 + 2, w: cw - 4, h: ch - 4, tone: r() });
+      } else if (sub < 0.7) {
+        const h2 = ch / 2;
+        plates.push({ x: x0 + 2, y: y0 + 2, w: cw - 4, h: h2 - 4, tone: r() });
+        plates.push({ x: x0 + 2, y: y0 + h2 + 2, w: cw - 4, h: h2 - 4, tone: r() });
+      } else {
+        const w2 = cw / 2;
+        plates.push({ x: x0 + 2, y: y0 + 2, w: w2 - 4, h: ch - 4, tone: r() });
+        plates.push({ x: x0 + w2 + 2, y: y0 + 2, w: w2 - 4, h: ch - 4, tone: r() });
+      }
+    }
+  }
+
+  // Cyan energy conduit runners and junction tracks
+  const cyanTracks = [];
+  for (const trackY of [size * 0.125, size * 0.375, size * 0.625, size * 0.875]) {
+    cyanTracks.push({ x1: 0, y1: trackY, x2: size, y2: trackY, main: true });
+  }
+  for (let i = 0; i < 14; i++) {
+    const x = ((i + 0.5) / 14) * size + (r() - 0.5) * 40;
+    const y1 = Math.floor(r() * 4) * (size / 4) + size * 0.125;
+    const y2 = y1 + size * 0.25;
+    cyanTracks.push({ x1: x, y1, x2: x, y2, main: false });
+  }
+
+  // Caution hazard chevron bands
+  const hazards = [
+    { x: size * 0.04, y: size * 0.22, w: size * 0.22, h: 24 },
+    { x: size * 0.54, y: size * 0.72, w: size * 0.24, h: 24 },
+    { x: size * 0.28, y: size * 0.48, w: size * 0.20, h: 20 }
+  ];
+
+  // Military stencils & hull technical labels
+  const stencils = [
+    { text: 'HALCYON II', x: size * 0.08, y: size * 0.29, s: 40 },
+    { text: 'CVS-07', x: size * 0.60, y: size * 0.29, s: 46 },
+    { text: 'FLEET CMD // TACTICAL', x: size * 0.08, y: size * 0.79, s: 26 },
+    { text: 'CAUTION // PLASMA CONDUIT', x: size * 0.40, y: size * 0.14, s: 18 },
+    { text: 'SEC-04 REACTION CONTROL', x: size * 0.40, y: size * 0.64, s: 18 }
+  ];
+
+  // Micro-greeble hatches and access panels
+  const hatches = [];
+  for (let i = 0; i < 48; i++) {
+    hatches.push({
+      x: r() * (size - 100) + 50,
+      y: r() * (size - 80) + 40,
+      w: 20 + r() * 36,
+      h: 16 + r() * 26,
+      amberDot: r() < 0.65
+    });
+  }
+
+  // 1. DIFFUSE COLOR MAP
+  const map = canvasTex(size, (x) => {
+    x.fillStyle = '#11141b';
+    x.fillRect(0, 0, size, size);
+
+    // Armor plates
+    for (const p of plates) {
+      const t = p.tone;
+      let rVal, gVal, bVal;
+      if (t < 0.45) {
+        rVal = 24 + Math.floor(t * 15);
+        gVal = 28 + Math.floor(t * 18);
+        bVal = 36 + Math.floor(t * 24);
+      } else if (t < 0.8) {
+        rVal = 18 + Math.floor(t * 12);
+        gVal = 22 + Math.floor(t * 14);
+        bVal = 28 + Math.floor(t * 18);
+      } else {
+        rVal = 34 + Math.floor(t * 18);
+        gVal = 40 + Math.floor(t * 22);
+        bVal = 52 + Math.floor(t * 28);
+      }
+      x.fillStyle = `rgb(${rVal}, ${gVal}, ${bVal})`;
+      x.fillRect(p.x, p.y, p.w, p.h);
+
+      // Plate bevel edge highlight
+      x.strokeStyle = 'rgba(100, 125, 160, 0.28)';
+      x.lineWidth = 1.5;
+      x.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
+
+      // Plate perimeter seam gutter
+      x.strokeStyle = 'rgba(5, 7, 10, 0.95)';
+      x.lineWidth = 2.5;
+      x.strokeRect(p.x - 1, p.y - 1, p.w + 2, p.h + 2);
+
+      // Hex bolts on larger plates
+      if (p.w > 60 && p.h > 40) {
+        x.fillStyle = 'rgba(130, 155, 190, 0.45)';
+        for (const [bx, by] of [[p.x + 6, p.y + 6], [p.x + p.w - 6, p.y + 6], [p.x + 6, p.y + p.h - 6], [p.x + p.w - 6, p.y + p.h - 6]]) {
+          x.beginPath(); x.arc(bx, by, 1.8, 0, TAU); x.fill();
+        }
+      }
+    }
+
+    // Access hatches and maintenance panels
+    for (const h of hatches) {
+      x.fillStyle = 'rgba(14, 18, 24, 0.9)';
+      x.fillRect(h.x, h.y, h.w, h.h);
+      x.strokeStyle = 'rgba(75, 95, 125, 0.55)';
+      x.lineWidth = 1.2;
+      x.strokeRect(h.x + 0.5, h.y + 0.5, h.w - 1, h.h - 1);
+      if (h.amberDot) {
+        x.fillStyle = '#ffaa11';
+        x.beginPath(); x.arc(h.x + h.w - 4, h.y + 4, 1.8, 0, TAU); x.fill();
+      }
+    }
+
+    // Hazard chevrons
+    for (const hz of hazards) {
+      const step = 14;
+      for (let ox = -hz.h; ox < hz.w + hz.h; ox += step) {
+        x.fillStyle = '#e5a010';
+        x.beginPath();
+        x.moveTo(hz.x + ox, hz.y);
+        x.lineTo(hz.x + ox + step * 0.5, hz.y);
+        x.lineTo(hz.x + ox + step * 0.5 + hz.h, hz.y + hz.h);
+        x.lineTo(hz.x + ox + hz.h, hz.y + hz.h);
+        x.closePath();
+        x.save();
+        x.beginPath();
+        x.rect(hz.x, hz.y, hz.w, hz.h);
+        x.clip();
+        x.fill();
+        x.restore();
+      }
+      x.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+      x.lineWidth = 2;
+      x.strokeRect(hz.x, hz.y, hz.w, hz.h);
+    }
+
+    // Stencil typography
+    x.fillStyle = 'rgba(215, 230, 255, 0.85)';
+    for (const st of stencils) {
+      x.font = `900 ${st.s}px monospace, sans-serif`;
+      x.fillText(st.text, st.x, st.y);
+    }
+
+    // Cyan plasma conduit glow runners
+    for (const t of cyanTracks) {
+      x.strokeStyle = 'rgba(0, 210, 255, 0.3)';
+      x.lineWidth = t.main ? 10 : 7;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.strokeStyle = 'rgba(0, 245, 255, 0.85)';
+      x.lineWidth = t.main ? 4 : 2.5;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.strokeStyle = 'rgba(235, 255, 255, 0.95)';
+      x.lineWidth = t.main ? 1.5 : 1;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.fillStyle = '#00ffff';
+      x.beginPath(); x.arc(t.x1, t.y1, t.main ? 4 : 3, 0, TAU); x.fill();
+      x.beginPath(); x.arc(t.x2, t.y2, t.main ? 4 : 3, 0, TAU); x.fill();
+    }
+  });
+
+  // 2. BUMP HEIGHT MAP
+  const bump = canvasTex(size, (x) => {
+    x.fillStyle = '#656565';
+    x.fillRect(0, 0, size, size);
+
+    for (const p of plates) {
+      const h = 100 + Math.floor(p.tone * 50);
+      x.fillStyle = `rgb(${h}, ${h}, ${h})`;
+      x.fillRect(p.x, p.y, p.w, p.h);
+
+      x.strokeStyle = '#121212';
+      x.lineWidth = 3;
+      x.strokeRect(p.x - 1, p.y - 1, p.w + 2, p.h + 2);
+
+      x.strokeStyle = '#b0b0b0';
+      x.lineWidth = 1.5;
+      x.beginPath();
+      x.moveTo(p.x, p.y + p.h); x.lineTo(p.x, p.y); x.lineTo(p.x + p.w, p.y);
+      x.stroke();
+
+      x.strokeStyle = '#353535';
+      x.beginPath();
+      x.moveTo(p.x + p.w, p.y); x.lineTo(p.x + p.w, p.y + p.h); x.lineTo(p.x, p.y + p.h);
+      x.stroke();
+
+      if (p.w > 60 && p.h > 40) {
+        x.fillStyle = '#dcdcdc';
+        for (const [bx, by] of [[p.x + 6, p.y + 6], [p.x + p.w - 6, p.y + 6], [p.x + 6, p.y + p.h - 6], [p.x + p.w - 6, p.y + p.h - 6]]) {
+          x.beginPath(); x.arc(bx, by, 1.8, 0, TAU); x.fill();
+        }
+      }
+    }
+
+    for (const h of hatches) {
+      x.strokeStyle = '#101010';
+      x.lineWidth = 2.5;
+      x.strokeRect(h.x, h.y, h.w, h.h);
+      x.fillStyle = '#828282';
+      x.fillRect(h.x + 2, h.y + 2, h.w - 4, h.h - 4);
+    }
+
+    for (const t of cyanTracks) {
+      x.strokeStyle = '#181818';
+      x.lineWidth = t.main ? 8 : 5;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.strokeStyle = '#909090';
+      x.lineWidth = t.main ? 2 : 1.5;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+    }
+  }, false);
+
+  // 3. EMISSIVE GLOW MAP
+  const emissive = canvasTex(size, (x) => {
+    x.fillStyle = '#000000';
+    x.fillRect(0, 0, size, size);
+
+    for (const t of cyanTracks) {
+      x.strokeStyle = 'rgba(0, 200, 255, 0.45)';
+      x.lineWidth = t.main ? 14 : 9;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.strokeStyle = '#00e5ff';
+      x.lineWidth = t.main ? 5 : 3;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.strokeStyle = '#ffffff';
+      x.lineWidth = t.main ? 1.8 : 1.2;
+      x.beginPath(); x.moveTo(t.x1, t.y1); x.lineTo(t.x2, t.y2); x.stroke();
+
+      x.fillStyle = '#00ffff';
+      x.beginPath(); x.arc(t.x1, t.y1, t.main ? 5 : 3.5, 0, TAU); x.fill();
+      x.fillStyle = '#ffffff';
+      x.beginPath(); x.arc(t.x1, t.y1, t.main ? 2.5 : 1.5, 0, TAU); x.fill();
+    }
+
+    for (const h of hatches) {
+      if (h.amberDot) {
+        x.fillStyle = '#ffaa00';
+        x.beginPath(); x.arc(h.x + h.w - 4, h.y + 4, 3, 0, TAU); x.fill();
+        x.fillStyle = '#ffffff';
+        x.beginPath(); x.arc(h.x + h.w - 4, h.y + 4, 1.2, 0, TAU); x.fill();
+      }
+    }
+  }, false);
+
+  return { map, bump, emissive };
+}
+
+const CARRIER_TEX = carrierTextures(2048);
 const CHITIN = chitinTextures();
 const ROCK_TEX = rockTextures();
 const CHITIN_OPTS = { map: CHITIN.map, bumpMap: CHITIN.bump, bumpScale: 2.5 };
@@ -1893,6 +2156,11 @@ async function loadAssets() {
       tex(ASSET_URLS.carrierDeck, true, 1, 5),
     ]);
     for (const m of carrierMats) {
+      if (m.userData.keepProcedural) {
+        if (mn) { m.normalMap = mn; m.normalScale.set(0.2, 0.2); }
+        m.needsUpdate = true;
+        continue;
+      }
       Object.assign(m, { map: ch, normalMap: mn, roughnessMap: mr, metalnessMap: mm, bumpMap: null, roughness: 1, metalness: 0.85 });
       m.color.set(0xffffff);
       m.normalScale.set(0.8, 0.8);
@@ -2497,12 +2765,37 @@ function nameplateTexture() {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 128;
   const x = c.getContext('2d');
-  x.fillStyle = 'rgba(235, 238, 242, 0.85)';
-  x.font = '700 92px "Chakra Petch", sans-serif';
+  x.fillStyle = 'rgba(10, 14, 20, 0.95)';
+  x.fillRect(0, 0, 1024, 128);
+  x.strokeStyle = 'rgba(0, 229, 255, 0.8)';
+  x.lineWidth = 3;
+  x.strokeRect(3, 3, 1018, 122);
+
+  // Cyan fleet chevron crest
+  x.fillStyle = '#00e5ff';
+  x.beginPath();
+  x.moveTo(25, 20); x.lineTo(55, 64); x.lineTo(25, 108);
+  x.lineTo(40, 108); x.lineTo(70, 64); x.lineTo(40, 20);
+  x.closePath();
+  x.fill();
+
+  // Halcyon designation
+  x.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  x.font = '900 80px "Chakra Petch", monospace, sans-serif';
   x.textBaseline = 'middle';
-  x.fillText('CVS-07   HALCYON', 20, 66);
+  x.fillText('CVS-07   HALCYON II', 92, 67);
+
+  x.fillStyle = '#ffffff';
+  x.fillText('CVS-07   HALCYON II', 90, 64);
+
+  // Subtitle
+  x.fillStyle = '#ffaa00';
+  x.font = '700 20px monospace, sans-serif';
+  x.fillText('FLEET STRIKE COMMAND // HEAVY CATAMARAN SUPERCARRIER', 90, 106);
+
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
 
@@ -2526,38 +2819,125 @@ const carrierParts = { radar: null, radars: [], chase: null, chaseCount: 0, chas
 
 function buildCarrier() {
   const g = new THREE.Group();
-  const hullM = phys(0x6f7787, { metalness: 0.65, roughness: 0.55, clearcoat: 0.1, envMapIntensity: 0.5, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
-  const darkM = new THREE.MeshStandardMaterial({ color: 0x22262e, metalness: 0.8, roughness: 0.5 });
-  const darkPlate = new THREE.MeshStandardMaterial({ color: 0x3e4552, metalness: 0.75, roughness: 0.55, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
-  hullM.userData.plateColor = 0xa8b0be;
-  darkPlate.userData.plateColor = 0x585f6c;
+  const hullM = new THREE.MeshStandardMaterial({
+    color: 0xdce3f0,
+    metalness: 0.8,
+    roughness: 0.45,
+    map: CARRIER_TEX.map,
+    bumpMap: CARRIER_TEX.bump,
+    bumpScale: 2.2,
+    emissiveMap: CARRIER_TEX.emissive,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 1.2,
+  });
+  hullM.userData.keepProcedural = true;
+
+  const darkPlate = new THREE.MeshStandardMaterial({
+    color: 0x8a94a6,
+    metalness: 0.85,
+    roughness: 0.5,
+    map: CARRIER_TEX.map,
+    bumpMap: CARRIER_TEX.bump,
+    bumpScale: 2.5,
+    emissiveMap: CARRIER_TEX.emissive,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 1.0,
+  });
+  darkPlate.userData.keepProcedural = true;
+
+  const darkM = new THREE.MeshStandardMaterial({ color: 0x141820, metalness: 0.85, roughness: 0.55 });
   carrierMats.push(hullM, darkPlate);
+
+  const glowCyanSolid = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+  const radiatorAmber = glow(3.2, 1.4, 0.3);
   const windowDim = glow(1.4, 1.5, 1.2);
   const hangarDark = new THREE.MeshBasicMaterial({ color: 0x050608 });
-  const hangarGlow = glow(2.2, 1.9, 1.3);
+
+  const mtx = new THREE.Matrix4(), q0 = new THREE.Quaternion();
 
   // ---------------- Twin Catamaran Sponsons (Port and Starboard Hulls) ----------------
   for (const side of [-1, 1]) {
     const cx = side * 62;
-    // Main sponson hull
-    g.add(texBox(64, 38, 760, hullM, 40, cx, 4, -60));
-    // Lower beveled bilge armor
-    g.add(texBox(54, 16, 700, darkPlate, 30, cx, -16, -60));
-    // Outboard angled armor skirts
-    g.add(texBox(6, 26, 620, darkPlate, 30, cx + side * 34, 4, -60));
-    // Forward prow wedge
-    g.add(texBox(44, 28, 160, hullM, 16, cx + side * 4, 3, -480));
+
+    // --- Tier 1: Upper Flight Deck & Armor Sponson (y = 12..24) ---
+    // Upper main hull block
+    g.add(texBox(60, 12, 740, hullM, 40, cx, 18, -60));
+    // Outboard chamfered armor skirt along flight deck
+    g.add(texBox(6, 10, 700, darkPlate, 30, cx + side * 31.5, 17, -60));
+    // Continuous neon cyan edge rail along outer flight deck
+    g.add(part(G.box, glowCyanSolid, 0.6, 0.4, 710, cx + side * 34.6, 23.4, -60));
+
     // Upper flight deck
-    const deckMesh = texBox(56, 1.8, 700, darkM, 25, cx, 23.5, -60);
+    const deckMesh = texBox(56, 1.8, 700, darkM, 25, cx, 24.2, -60);
     g.add(deckMesh);
     if (side === 1) carrierParts.deck = deckMesh;
-    // Catapult launch groove
-    g.add(part(G.box, darkPlate, 3, 0.4, 580, cx, 24.5, -110));
-    // Outboard secondary launch bays
-    g.add(part(G.box, hangarDark, 0.6, 9, 32, cx + side * 33, 5, -205));
-    g.add(part(G.box, hangarGlow, 0.7, 0.4, 30, cx + side * 33, 0.6, -205));
-    g.add(part(G.box, hangarGlow, 0.7, 0.4, 30, cx + side * 33, 9.4, -205));
+
+    // Primary catapult groove and launch guide strip
+    g.add(part(G.box, darkPlate, 4, 0.6, 580, cx, 24.8, -110));
+    g.add(part(G.box, glowCyanSolid, 0.6, 0.3, 560, cx, 25.2, -110));
+    // Catapult chevron warning beacons
+    for (let pz = -380; pz <= 160; pz += 60) {
+      g.add(part(G.box, DECK_LINE, 1.2, 0.25, 2.5, cx - 3.2, 25.2, pz));
+      g.add(part(G.box, DECK_LINE, 1.2, 0.25, 2.5, cx + 3.2, 25.2, pz));
+    }
+
+    // --- Tier 2: Recessed Mid-Hull Weapons Trench & Service Gallery (y = 0..12) ---
+    // Recessed 4 units inward to create real physical shadow and surface relief
+    g.add(texBox(54, 12, 760, darkPlate, 35, cx - side * 3, 6, -60));
+    // Heavy longitudinal power conduit pipes along the outer mid-trench
+    for (const py of [3.5, 8.5]) {
+      const pipe = part(G.cyl, darkM, 0.9, 720, 0.9, cx + side * 25.5, py, -60);
+      pipe.rotation.x = Math.PI / 2;
+      g.add(pipe);
+    }
+    // Glowing cyan plasma feed conduit running through the trench
+    g.add(part(G.box, glowCyanSolid, 0.4, 0.6, 720, cx + side * 24.5, 6, -60));
+
+    // Outboard secondary launch / service bays
+    g.add(part(G.box, hangarDark, 0.8, 8, 38, cx + side * 31, 17, -210));
+    g.add(part(G.box, glowCyanSolid, 0.9, 0.4, 36, cx + side * 31.2, 13.2, -210));
+    g.add(part(G.box, glowCyanSolid, 0.9, 0.4, 36, cx + side * 31.2, 20.8, -210));
+
+    // --- Tier 3: Lower Armor Bilge & Tumblehome Keel (y = -18..0) ---
+    // Lower main hull block (W: 56, H: 12, L: 720, y: -6)
+    g.add(texBox(56, 12, 720, darkPlate, 30, cx, -6, -60));
+    // Inward chamfered lower bilge keel (W: 46, H: 8, L: 680, y: -14)
+    g.add(texBox(46, 8, 680, hullM, 25, cx - side * 2, -14, -60));
+
+    // Aft thermal radiator grilles (copper/amber heat dissipation near engines)
+    g.add(part(G.box, radiatorAmber, 0.6, 8, 130, cx + side * 28.2, -5, 235));
+    // Radiator protective louvers / grilles
+    for (let rz = 175; rz <= 295; rz += 10) {
+      g.add(part(G.box, darkM, 0.8, 8.4, 1.8, cx + side * 28.3, -5, rz));
+    }
+
+    // --- Forward Raked Prow (Aggressive Angled Wedge) ---
+    // Upper prow wedge (tapering forward)
+    g.add(texBox(42, 20, 160, hullM, 18, cx + side * 3, 14, -490));
+    // Lower prow ram blade (angled chin)
+    g.add(texBox(32, 16, 180, darkPlate, 15, cx, -4, -500));
+    // Raked bow nose cut
+    g.add(texBox(22, 12, 80, hullM, 12, cx + side * 2, 6, -580));
+    // Glowing prow intake cowl
+    g.add(part(G.box, hangarDark, 16, 9, 28, cx, 8, -550));
+    g.add(part(G.box, glowCyanSolid, 1.2, 9.5, 30, cx - 8.5, 8, -550));
+    g.add(part(G.box, glowCyanSolid, 1.2, 9.5, 30, cx + 8.5, 8, -550));
+    g.add(part(G.box, glowCyanSolid, 18, 0.8, 30, cx, 13, -550));
   }
+
+  // Layered 3D Modular Armor Plating (InstancedMesh along outer flanks)
+  const plateZ = [];
+  for (let z = -380; z <= 240; z += 24) plateZ.push(z);
+  const armorCount = plateZ.length * 4;
+  const armorMesh = new THREE.InstancedMesh(G.box, darkPlate, armorCount);
+  let aIdx = 0;
+  for (const side of [-1, 1]) {
+    for (const z of plateZ) {
+      armorMesh.setMatrixAt(aIdx++, mtx.compose(V(side * 94.6, 17.5, z), q0, V(1.4, 5.2, 18)));
+      armorMesh.setMatrixAt(aIdx++, mtx.compose(V(side * 91.0, -5.5, z), q0, V(1.6, 5.8, 20)));
+    }
+  }
+  g.add(armorMesh);
 
   // ---------------- Central Fly-Through Chasm / Through-Deck Tunnel ----------------
   // Tunnel floor keel plate (solid foundation below tunnel)
@@ -2566,28 +2946,34 @@ function buildCarrier() {
   g.add(texBox(4, 34, 780, darkPlate, 30, -28.5, 7, -60));
   g.add(texBox(4, 34, 780, darkPlate, 30, 28.5, 7, -60));
 
+  // Entrance Portal Arch (z = -460) with illuminated chevron guide
+  g.add(part(G.box, darkM, 62, 5, 8, 0, 24, -460));
+  g.add(part(G.box, glowCyanSolid, 60, 1.2, 8.5, 0, 25.5, -460));
+  g.add(part(G.box, glowCyanSolid, 1.5, 34, 8.5, -28.5, 7, -460));
+  g.add(part(G.box, glowCyanSolid, 1.5, 34, 8.5, 28.5, 7, -460));
+
+  // Exit Portal Arch (z = +285)
+  g.add(part(G.box, darkM, 62, 5, 8, 0, 24, 285));
+  g.add(part(G.box, glowCyanSolid, 60, 1.2, 8.5, 0, 25.5, 285));
+  g.add(part(G.box, glowCyanSolid, 1.5, 34, 8.5, -28.5, 7, 285));
+  g.add(part(G.box, glowCyanSolid, 1.5, 34, 8.5, 28.5, 7, 285));
+
   // 15 Kenney-style structural rib arches along the tunnel
   const archZs = [-440, -390, -340, -290, -240, -190, -140, -90, -40, 10, 60, 110, 160, 210, 260];
   for (const z of archZs) {
-    // Left arch pillar
     g.add(part(G.box, darkPlate, 2.5, 33, 4.5, -27, 7, z));
-    // Right arch pillar
     g.add(part(G.box, darkPlate, 2.5, 33, 4.5, 27, 7, z));
-    // Top cross beam
     g.add(part(G.box, darkPlate, 55, 3, 4.5, 0, 23.5, z));
-    // Amber hazard beacon caps
     g.add(part(G.box, DECK_LINE, 1.2, 1.2, 5, -26.5, 23, z));
     g.add(part(G.box, DECK_LINE, 1.2, 1.2, 5, 26.5, 23, z));
-    // Glowing cyan maintenance energy strips along inner walls
-    g.add(part(G.box, CARRIER_CORE, 0.4, 2, 36, -26.5, 6, z));
-    g.add(part(G.box, CARRIER_CORE, 0.4, 2, 36, 26.5, 6, z));
+    g.add(part(G.box, glowCyanSolid, 0.4, 2, 36, -26.5, 6, z));
+    g.add(part(G.box, glowCyanSolid, 0.4, 2, 36, 26.5, 6, z));
   }
 
   // Tunnel runway centerline chase lights
   const chaseZ = [];
   for (let z = -440; z <= 280; z += 15) chaseZ.push(z);
   const chase = new THREE.InstancedMesh(G.box, new THREE.MeshBasicMaterial({ color: 0xffffff }), chaseZ.length);
-  const mtx = new THREE.Matrix4(), q0 = new THREE.Quaternion();
   chaseZ.forEach((z, i) => {
     chase.setMatrixAt(i, mtx.compose(V(0, -9.8, z), q0, V(2.2, 0.3, 1.2)));
     chase.setColorAt(i, CHASE_OFF);
@@ -2601,33 +2987,39 @@ function buildCarrier() {
   for (let z = -380; z <= 260; z += 20) edgeZ.push(z);
   const edge = new THREE.InstancedMesh(G.box, DECK_LINE, edgeZ.length * 4);
   edgeZ.forEach((z, i) => {
-    // Port deck edges (inner & outer)
-    edge.setMatrixAt(i * 4 + 0, mtx.compose(V(-90, 24.6, z), q0, V(0.8, 0.3, 1.6)));
-    edge.setMatrixAt(i * 4 + 1, mtx.compose(V(-34, 24.6, z), q0, V(0.8, 0.3, 1.6)));
-    // Starboard deck edges (inner & outer)
-    edge.setMatrixAt(i * 4 + 2, mtx.compose(V(34, 24.6, z), q0, V(0.8, 0.3, 1.6)));
-    edge.setMatrixAt(i * 4 + 3, mtx.compose(V(90, 24.6, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 0, mtx.compose(V(-90, 25.2, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 1, mtx.compose(V(-34, 25.2, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 2, mtx.compose(V(34, 25.2, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 3, mtx.compose(V(90, 25.2, z), q0, V(0.8, 0.3, 1.6)));
   });
   g.add(edge);
 
   // ---------------- Overhead Command Citadel & Connecting Bridge ----------------
   // Structural bridge cross-span connecting the two hulls over the tunnel
   g.add(texBox(76, 8, 200, darkPlate, 20, 0, 26, 10));
-  // Main command citadel
-  g.add(texBox(60, 22, 160, hullM, 20, 0, 41, 15));
-  // Upper observation deck
-  g.add(texBox(40, 12, 110, hullM, 15, 0, 56, 20));
+  // Main command citadel (Tier 1)
+  g.add(texBox(64, 18, 160, hullM, 20, 0, 39, 15));
+  // Citadel side armor buttresses
+  for (const s of [-1, 1]) {
+    g.add(texBox(6, 14, 140, darkPlate, 15, s * 33, 37, 15));
+    g.add(part(G.box, glowCyanSolid, 0.5, 0.4, 130, s * 35.5, 43, 15));
+  }
+  // Upper observation deck (Tier 2)
+  g.add(texBox(44, 12, 110, hullM, 15, 0, 54, 20));
+  // Top tactical sensor bridge (Tier 3)
+  g.add(texBox(32, 8, 70, darkPlate, 12, 0, 64, 25));
+
   // Panoramic bridge windows
-  g.add(part(G.box, WINDOW, 40.5, 2.2, 90, 0, 58, 20));
-  g.add(part(G.box, windowDim, 41.5, 1.1, 95, 0, 50, 18));
-  g.add(part(G.box, windowDim, 41.5, 1.1, 95, 0, 36, 15));
+  g.add(part(G.box, WINDOW, 32.5, 2.2, 60, 0, 65, 25));
+  g.add(part(G.box, windowDim, 44.5, 1.2, 95, 0, 53, 20));
+  g.add(part(G.box, windowDim, 64.5, 1.2, 140, 0, 38, 15));
 
   // Dual rotating radar arrays on port and starboard bridge wings
   const dishM = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
   carrierParts.radars = [];
   for (const rX of [-22, 22]) {
     const radar = new THREE.Group();
-    radar.position.set(rX, 67, 25);
+    radar.position.set(rX, 70, 25);
     const dish = new THREE.Mesh(new THREE.SphereGeometry(4.2, 18, 8, 0, TAU, 0, 0.85), dishM);
     dish.rotation.x = -Math.PI / 2 + 0.3;
     dish.position.y = 2.4;
@@ -2638,28 +3030,32 @@ function buildCarrier() {
   carrierParts.radar = carrierParts.radars[0];
 
   // Comms mast & sensor needles
-  g.add(part(G.cyl, darkM, 0.6, 22, 0.6, 0, 72, 25));
-  g.add(part(G.sphere, RUNNING, 1.2, 1.2, 1.2, 0, 83.5, 25));
-  for (const dz of [-8, 0, 8]) g.add(part(G.cyl, darkM, 0.2, 9, 0.2, 12, 65, 20 + dz));
+  g.add(part(G.cyl, darkM, 0.6, 22, 0.6, 0, 75, 25));
+  g.add(part(G.sphere, RUNNING, 1.2, 1.2, 1.2, 0, 86.5, 25));
+  for (const dz of [-8, 0, 8]) g.add(part(G.cyl, darkM, 0.2, 9, 0.2, 12, 68, 20 + dz));
 
-  // Hull windows and surface greebles along outer sponson flanks
+  // Hull windows along sponson flanks
   const win = new THREE.InstancedMesh(G.box, windowDim, 280);
-  const greebles = new THREE.InstancedMesh(G.box, darkM, 140);
   for (let i = 0; i < 280; i++) {
     const z = rand(-380, 250), side = i % 2 ? 1 : -1;
-    win.setMatrixAt(i, mtx.compose(V(side * 95.8, [-6, -2, 2, 8][i % 4], z), q0, V(0.3, 0.9, 2.2)));
+    win.setMatrixAt(i, mtx.compose(V(side * 94.8, [-4, 0, 4, 10][i % 4], z), q0, V(0.3, 0.9, 2.2)));
   }
-  for (let i = 0; i < 140; i++) {
-    const z = rand(-370, 240), side = i % 2 ? 1 : -1, s = V(rand(1, 3.5), rand(2, 6), rand(6, 22));
-    greebles.setMatrixAt(i, mtx.compose(V(side * (95.5 + s.x / 2), rand(-12, 14), z), q0, s));
-  }
-  g.add(win, greebles);
+  g.add(win);
 
   // Painted nameplates on outer sponson flanks
-  const nameMat = new THREE.MeshStandardMaterial({ map: nameplateTexture(), transparent: true, roughness: 0.7, depthWrite: false });
+  const nameMat = new THREE.MeshStandardMaterial({
+    map: nameplateTexture(),
+    transparent: true,
+    roughness: 0.4,
+    metalness: 0.8,
+    emissiveMap: nameplateTexture(),
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 0.7,
+    depthWrite: false
+  });
   for (const side of [-1, 1]) {
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(120, 15), nameMat);
-    plate.position.set(side * 96.2, 5, -60);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(160, 20), nameMat);
+    plate.position.set(side * 95.0, 6, -60);
     plate.rotation.y = side * Math.PI / 2;
     g.add(plate);
   }
@@ -2668,7 +3064,14 @@ function buildCarrier() {
   for (const side of [-1, 1]) {
     const cx = side * 62;
     // Sponson rear engine housing
-    g.add(texBox(58, 22, 24, darkPlate, 15, cx, 3, 322));
+    g.add(texBox(58, 22, 28, darkPlate, 15, cx, 3, 322));
+    // Vertical armored divider fins
+    for (const fx of [-24, 0, 24]) {
+      g.add(texBox(3, 26, 32, darkM, 10, cx + fx, 3, 322));
+    }
+    // Amber thermal dissipation vent strip along engine roof
+    g.add(part(G.box, radiatorAmber, 52, 0.8, 22, cx, 14.5, 322));
+
     for (const dx of [-18, -6, 6, 18]) {
       const ex = cx + dx;
       const ring = part(G.cyl, darkM, 5.2, 6, 5.2, ex, 3, 334);
@@ -2688,9 +3091,9 @@ function buildCarrier() {
   // ---------------- Point-Defence Flak Turrets (10 Turrets) ----------------
   const turretLocs = [
     [-32, 24, -420], [32, 24, -420],   // Prow tunnel mouth guards
-    [-86, 24, -160], [-86, 24, 140],   // Port flight deck
-    [86, 24, -160], [86, 24, 140],     // Starboard flight deck
-    [-20, 65, 20], [20, 65, 20],       // Command citadel bridge roof
+    [-86, 25.2, -160], [-86, 25.2, 140], // Port flight deck
+    [86, 25.2, -160], [86, 25.2, 140],   // Starboard flight deck
+    [-20, 68, 20], [20, 68, 20],       // Command citadel bridge roof
     [-32, 24, 290], [32, 24, 290],     // Stern tunnel exit guards
   ];
   for (const [x, y, z] of turretLocs) {
