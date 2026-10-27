@@ -1771,63 +1771,63 @@ const HULL_TEX = hullTextures(7);
 function carrierTextures(size = 2048) {
   const r = seeded(89);
   const plates = [];
-  const cols = 8, rows = 8;
+  const cols = 4, rows = 4;
   const cw = size / cols, ch = size / rows;
   for (let c = 0; c < cols; c++) {
     for (let row = 0; row < rows; row++) {
       const x0 = c * cw, y0 = row * ch;
       const sub = r();
-      if (sub < 0.35) {
-        plates.push({ x: x0 + 2, y: y0 + 2, w: cw - 4, h: ch - 4, tone: r() });
+      if (sub < 0.4) {
+        plates.push({ x: x0 + 3, y: y0 + 3, w: cw - 6, h: ch - 6, tone: r() });
       } else if (sub < 0.7) {
         const h2 = ch / 2;
-        plates.push({ x: x0 + 2, y: y0 + 2, w: cw - 4, h: h2 - 4, tone: r() });
-        plates.push({ x: x0 + 2, y: y0 + h2 + 2, w: cw - 4, h: h2 - 4, tone: r() });
+        plates.push({ x: x0 + 3, y: y0 + 3, w: cw - 6, h: h2 - 6, tone: r() });
+        plates.push({ x: x0 + 3, y: y0 + h2 + 3, w: cw - 6, h: h2 - 6, tone: r() });
       } else {
         const w2 = cw / 2;
-        plates.push({ x: x0 + 2, y: y0 + 2, w: w2 - 4, h: ch - 4, tone: r() });
-        plates.push({ x: x0 + w2 + 2, y: y0 + 2, w: w2 - 4, h: ch - 4, tone: r() });
+        plates.push({ x: x0 + 3, y: y0 + 3, w: w2 - 6, h: ch - 6, tone: r() });
+        plates.push({ x: x0 + w2 + 3, y: y0 + 3, w: w2 - 6, h: ch - 6, tone: r() });
       }
     }
   }
 
   // Cyan energy conduit runners and junction tracks
   const cyanTracks = [];
-  for (const trackY of [size * 0.125, size * 0.375, size * 0.625, size * 0.875]) {
+  for (const trackY of [size * 0.25, size * 0.75]) {
     cyanTracks.push({ x1: 0, y1: trackY, x2: size, y2: trackY, main: true });
   }
-  for (let i = 0; i < 14; i++) {
-    const x = ((i + 0.5) / 14) * size + (r() - 0.5) * 40;
-    const y1 = Math.floor(r() * 4) * (size / 4) + size * 0.125;
-    const y2 = y1 + size * 0.25;
+  for (let i = 0; i < 8; i++) {
+    const x = ((i + 0.5) / 8) * size + (r() - 0.5) * 40;
+    const y1 = Math.floor(r() * 2) * (size / 2) + size * 0.25;
+    const y2 = y1 + size * 0.5;
     cyanTracks.push({ x1: x, y1, x2: x, y2, main: false });
   }
 
   // Caution hazard chevron bands
   const hazards = [
-    { x: size * 0.04, y: size * 0.22, w: size * 0.22, h: 24 },
-    { x: size * 0.54, y: size * 0.72, w: size * 0.24, h: 24 },
-    { x: size * 0.28, y: size * 0.48, w: size * 0.20, h: 20 }
+    { x: size * 0.05, y: size * 0.22, w: size * 0.24, h: 28 },
+    { x: size * 0.55, y: size * 0.72, w: size * 0.26, h: 28 },
+    { x: size * 0.30, y: size * 0.48, w: size * 0.22, h: 24 }
   ];
 
   // Military stencils & hull technical labels
   const stencils = [
-    { text: 'HALCYON II', x: size * 0.08, y: size * 0.29, s: 40 },
-    { text: 'CVS-07', x: size * 0.60, y: size * 0.29, s: 46 },
-    { text: 'FLEET CMD // TACTICAL', x: size * 0.08, y: size * 0.79, s: 26 },
-    { text: 'CAUTION // PLASMA CONDUIT', x: size * 0.40, y: size * 0.14, s: 18 },
-    { text: 'SEC-04 REACTION CONTROL', x: size * 0.40, y: size * 0.64, s: 18 }
+    { text: 'HALCYON II', x: size * 0.08, y: size * 0.30, s: 48 },
+    { text: 'CVS-07', x: size * 0.60, y: size * 0.30, s: 54 },
+    { text: 'FLEET STRIKE COMMAND', x: size * 0.08, y: size * 0.80, s: 32 },
+    { text: 'CAUTION // PLASMA CONDUIT', x: size * 0.40, y: size * 0.16, s: 22 },
+    { text: 'SEC-04 REACTION CONTROL', x: size * 0.40, y: size * 0.66, s: 22 }
   ];
 
   // Micro-greeble hatches and access panels
   const hatches = [];
-  for (let i = 0; i < 48; i++) {
+  for (let i = 0; i < 32; i++) {
     hatches.push({
-      x: r() * (size - 100) + 50,
-      y: r() * (size - 80) + 40,
-      w: 20 + r() * 36,
-      h: 16 + r() * 26,
-      amberDot: r() < 0.65
+      x: r() * (size - 140) + 70,
+      y: r() * (size - 120) + 60,
+      w: 32 + r() * 48,
+      h: 24 + r() * 36,
+      amberDot: r() < 0.7
     });
   }
 
@@ -2849,7 +2849,7 @@ function buildCarrier() {
   carrierMats.push(hullM, darkPlate);
 
   const glowCyanSolid = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-  const radiatorAmber = glow(3.2, 1.4, 0.3);
+  const radiatorAmber = glow(1.8, 0.85, 0.2);
   const windowDim = glow(1.4, 1.5, 1.2);
   const hangarDark = new THREE.MeshBasicMaterial({ color: 0x050608 });
 
@@ -2861,9 +2861,9 @@ function buildCarrier() {
 
     // --- Tier 1: Upper Flight Deck & Armor Sponson (y = 12..24) ---
     // Upper main hull block
-    g.add(texBox(60, 12, 740, hullM, 40, cx, 18, -60));
+    g.add(texBox(60, 12, 740, hullM, 180, cx, 18, -60));
     // Outboard chamfered armor skirt along flight deck
-    g.add(texBox(6, 10, 700, darkPlate, 30, cx + side * 31.5, 17, -60));
+    g.add(texBox(6, 10, 700, darkPlate, 140, cx + side * 31.5, 17, -60));
     // Continuous neon cyan edge rail along outer flight deck
     g.add(part(G.box, glowCyanSolid, 0.6, 0.4, 710, cx + side * 34.6, 23.4, -60));
 
@@ -2883,7 +2883,7 @@ function buildCarrier() {
 
     // --- Tier 2: Recessed Mid-Hull Weapons Trench & Service Gallery (y = 0..12) ---
     // Recessed 4 units inward to create real physical shadow and surface relief
-    g.add(texBox(54, 12, 760, darkPlate, 35, cx - side * 3, 6, -60));
+    g.add(texBox(54, 12, 760, darkPlate, 160, cx - side * 3, 6, -60));
     // Heavy longitudinal power conduit pipes along the outer mid-trench
     for (const py of [3.5, 8.5]) {
       const pipe = part(G.cyl, darkM, 0.9, 720, 0.9, cx + side * 25.5, py, -60);
@@ -2900,12 +2900,12 @@ function buildCarrier() {
 
     // --- Tier 3: Lower Armor Bilge & Tumblehome Keel (y = -18..0) ---
     // Lower main hull block (W: 56, H: 12, L: 720, y: -6)
-    g.add(texBox(56, 12, 720, darkPlate, 30, cx, -6, -60));
+    g.add(texBox(56, 12, 720, darkPlate, 160, cx, -6, -60));
     // Inward chamfered lower bilge keel (W: 46, H: 8, L: 680, y: -14)
-    g.add(texBox(46, 8, 680, hullM, 25, cx - side * 2, -14, -60));
+    g.add(texBox(46, 8, 680, hullM, 140, cx - side * 2, -14, -60));
 
     // Aft thermal radiator grilles (copper/amber heat dissipation near engines)
-    g.add(part(G.box, radiatorAmber, 0.6, 8, 130, cx + side * 28.2, -5, 235));
+    g.add(part(G.box, radiatorAmber, 0.6, 7.5, 120, cx + side * 28.0, -5, 235));
     // Radiator protective louvers / grilles
     for (let rz = 175; rz <= 295; rz += 10) {
       g.add(part(G.box, darkM, 0.8, 8.4, 1.8, cx + side * 28.3, -5, rz));
@@ -2913,11 +2913,11 @@ function buildCarrier() {
 
     // --- Forward Raked Prow (Aggressive Angled Wedge) ---
     // Upper prow wedge (tapering forward)
-    g.add(texBox(42, 20, 160, hullM, 18, cx + side * 3, 14, -490));
+    g.add(texBox(42, 20, 160, hullM, 80, cx + side * 3, 14, -490));
     // Lower prow ram blade (angled chin)
-    g.add(texBox(32, 16, 180, darkPlate, 15, cx, -4, -500));
+    g.add(texBox(32, 16, 180, darkPlate, 80, cx, -4, -500));
     // Raked bow nose cut
-    g.add(texBox(22, 12, 80, hullM, 12, cx + side * 2, 6, -580));
+    g.add(texBox(22, 12, 80, hullM, 50, cx + side * 2, 6, -580));
     // Glowing prow intake cowl
     g.add(part(G.box, hangarDark, 16, 9, 28, cx, 8, -550));
     g.add(part(G.box, glowCyanSolid, 1.2, 9.5, 30, cx - 8.5, 8, -550));
@@ -2941,10 +2941,10 @@ function buildCarrier() {
 
   // ---------------- Central Fly-Through Chasm / Through-Deck Tunnel ----------------
   // Tunnel floor keel plate (solid foundation below tunnel)
-  g.add(texBox(58, 4, 820, darkPlate, 40, 0, -12, -60));
+  g.add(texBox(58, 4, 820, darkPlate, 160, 0, -12, -60));
   // Tunnel inner bulkheads (left and right interior walls)
-  g.add(texBox(4, 34, 780, darkPlate, 30, -28.5, 7, -60));
-  g.add(texBox(4, 34, 780, darkPlate, 30, 28.5, 7, -60));
+  g.add(texBox(4, 34, 780, darkPlate, 120, -28.5, 7, -60));
+  g.add(texBox(4, 34, 780, darkPlate, 120, 28.5, 7, -60));
 
   // Entrance Portal Arch (z = -460) with illuminated chevron guide
   g.add(part(G.box, darkM, 62, 5, 8, 0, 24, -460));
@@ -2996,18 +2996,18 @@ function buildCarrier() {
 
   // ---------------- Overhead Command Citadel & Connecting Bridge ----------------
   // Structural bridge cross-span connecting the two hulls over the tunnel
-  g.add(texBox(76, 8, 200, darkPlate, 20, 0, 26, 10));
+  g.add(texBox(76, 8, 200, darkPlate, 80, 0, 26, 10));
   // Main command citadel (Tier 1)
-  g.add(texBox(64, 18, 160, hullM, 20, 0, 39, 15));
+  g.add(texBox(64, 18, 160, hullM, 80, 0, 39, 15));
   // Citadel side armor buttresses
   for (const s of [-1, 1]) {
-    g.add(texBox(6, 14, 140, darkPlate, 15, s * 33, 37, 15));
+    g.add(texBox(6, 14, 140, darkPlate, 60, s * 33, 37, 15));
     g.add(part(G.box, glowCyanSolid, 0.5, 0.4, 130, s * 35.5, 43, 15));
   }
   // Upper observation deck (Tier 2)
-  g.add(texBox(44, 12, 110, hullM, 15, 0, 54, 20));
+  g.add(texBox(44, 12, 110, hullM, 60, 0, 54, 20));
   // Top tactical sensor bridge (Tier 3)
-  g.add(texBox(32, 8, 70, darkPlate, 12, 0, 64, 25));
+  g.add(texBox(32, 8, 70, darkPlate, 50, 0, 64, 25));
 
   // Panoramic bridge windows
   g.add(part(G.box, WINDOW, 32.5, 2.2, 60, 0, 65, 25));
