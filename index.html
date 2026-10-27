@@ -435,7 +435,7 @@ const MAX_SPEED = 70;
 const BOLT_SPEED = 330;
 const ENEMY_BOLT_SPEED = 200;
 const CARRIER_POS = V(0, -20, 0);
-const LAUNCH_POS = V(0, 28, -350);
+const LAUNCH_POS = V(0, 28, -550);
 
 // ---------------------------------------------------------------- renderer, camera, lights, post-processing
 const glCanvas = $('gl');
@@ -2439,26 +2439,22 @@ const ROCK_VARIANTS = Array.from({ length: 6 }, () => {
 // launch-bay mouths, a chase-lit runway, a five-nozzle engine block with exhaust plumes, hull windows, painted
 // markings, and point-defence turrets that engage Swarm ships that come near.
 const CARRIER_BOXES = [
-  [[-48, -14, -300], [48, 16, 200]],
-  [[-22, -14, -337], [22, 14, -300]],
-  [[20, 14, 2], [40, 52, 78]],
+  // Port Sponson Main Hull & Armor Skirts (Solid Left)
+  [[-105, -22, -450], [-27, 28, 330]],
+  // Starboard Sponson Main Hull & Armor Skirts (Solid Right)
+  [[27, -22, -450], [105, 28, 330]],
+  // Port Forward Prow Wedge
+  [[-90, -18, -540], [-25, 22, -450]],
+  // Starboard Forward Prow Wedge
+  [[25, -18, -540], [90, 22, -450]],
+  // Overhead Bridge Arch (Ceiling over middle tunnel)
+  [[-45, 26, -90], [45, 52, 110]],
+  // Command Citadel (Top of Bridge Arch)
+  [[-32, 52, -15], [32, 75, 65]],
+  // Keel Floor Plate (Solid Bottom below tunnel)
+  [[-32, -26, -450], [32, -10, 330]],
 ].map(([a, b]) => new THREE.Box3(V(...a).add(CARRIER_POS), V(...b).add(CARRIER_POS)));
-// Top-down outlines as [half-width, distance toward the prow]; the prow points down -z.
-const HULL_HALF = [[0, 335], [18, 300], [34, 230], [42, 120], [46, 0], [50, -90], [46, -150], [40, -185], [0, -185]];
-const DECK_HALF = [[0, 305], [14, 280], [26, 215], [33, 110], [36, 0], [38, -90], [36, -170], [0, -170]];
-function halfWidthAt(outline, z) {
-  const y = -z;
-  for (let i = 0; i < outline.length - 2; i++) {
-    const [x0, y0] = outline[i], [x1, y1] = outline[i + 1];
-    if (y <= y0 && y >= y1) return x0 + ((y0 - y) / (y0 - y1)) * (x1 - x0);
-  }
-  return outline[outline.length - 2][0];
-}
-function uvScale(geo, s) {
-  const uv = geo.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * s, uv.getY(i) * s);
-  return geo;
-}
+
 // Flight deck paint: worn deck plating, runway centreline, edge lines, catapult tracks, hazard bands and the hull number.
 function deckTexture() {
   const W = 512, Hh = 2048;
@@ -2496,6 +2492,7 @@ function deckTexture() {
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
+
 function nameplateTexture() {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 128;
@@ -2508,6 +2505,7 @@ function nameplateTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
 const plumeMat = shared(new THREE.ShaderMaterial({
   uniforms: { uTime: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -2524,142 +2522,184 @@ const plumeMat = shared(new THREE.ShaderMaterial({
 const CHASE_ON = new THREE.Color(3.2, 2.2, 0.6), CHASE_OFF = new THREE.Color(0.12, 0.08, 0.02);
 const CARRIER_CORE = glow(0.9, 1.8, 3.6);
 const BOLT_CARRIER = glow(4, 2, 0.6);
-const carrierParts = { radar: null, chase: null, chaseCount: 0, chaseT: 0, turrets: [] };
+const carrierParts = { radar: null, radars: [], chase: null, chaseCount: 0, chaseT: 0, turrets: [], deck: null };
+
 function buildCarrier() {
   const g = new THREE.Group();
-  const hullM = phys(0x6f7787, { metalness: 0.6, roughness: 0.58, clearcoat: 0.1, envMapIntensity: 0.5, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
-  const darkM = new THREE.MeshStandardMaterial({ color: 0x2a303c, metalness: 0.8, roughness: 0.5 });
-  const darkPlate = new THREE.MeshStandardMaterial({ color: 0x4a5160, metalness: 0.75, roughness: 0.55, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
+  const hullM = phys(0x6f7787, { metalness: 0.65, roughness: 0.55, clearcoat: 0.1, envMapIntensity: 0.5, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
+  const darkM = new THREE.MeshStandardMaterial({ color: 0x22262e, metalness: 0.8, roughness: 0.5 });
+  const darkPlate = new THREE.MeshStandardMaterial({ color: 0x3e4552, metalness: 0.75, roughness: 0.55, map: CARRIER_TEX.map, bumpMap: CARRIER_TEX.bump, bumpScale: 2 });
   hullM.userData.plateColor = 0xa8b0be;
   darkPlate.userData.plateColor = 0x585f6c;
   carrierMats.push(hullM, darkPlate);
   const windowDim = glow(1.4, 1.5, 1.2);
-
-  // Hull and flight deck
-  g.add(new THREE.Mesh(uvScale(flatExtrude(mirrorShape(HULL_HALF), 22, 3), 1 / 40), hullM));
-  const deckGeo = flatExtrude(mirrorShape(DECK_HALF), 1.2, 0.3);
-  const dp = deckGeo.attributes.position, duv = deckGeo.attributes.uv;
-  for (let i = 0; i < dp.count; i++) duv.setXY(i, (dp.getX(i) + 38) / 76, 1 - (dp.getZ(i) + 305) / 475);
-  // The painted deck material is fitted once assets settle (see settleAssets), like the other textures.
-  const deck = new THREE.Mesh(deckGeo, new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.85, metalness: 0.3 }));
-  deck.position.y = 14.6;
-  g.add(deck);
-  carrierParts.deck = deck;
-  for (const side of [-1, 1]) {
-    const skirt = texBox(3, 16, 270, darkPlate, 30, side * 47.5, -4, -15);
-    skirt.rotation.z = side * 0.35;
-    g.add(skirt);
-  }
-
-  // Command island with bridge windows, radar and mast
-  g.add(texBox(18, 16, 72, hullM, 24, 30, 22, 40), texBox(14, 12, 50, hullM, 24, 30, 36, 46), texBox(10, 8, 26, hullM, 20, 30, 46, 52));
-  g.add(part(G.box, WINDOW, 14.3, 1.6, 50.3, 30, 39.5, 46), part(G.box, windowDim, 18.3, 0.7, 60, 30, 26, 40), part(G.box, windowDim, 18.3, 0.7, 60, 30, 20, 40));
-  g.add(part(G.cyl, darkM, 0.6, 18, 0.6, 30, 59, 56), part(G.sphere, RUNNING, 1.1, 1.1, 1.1, 30, 68.5, 56));
-  for (const dz of [-6, 0, 6]) g.add(part(G.cyl, darkM, 0.15, 7, 0.15, 33, 53.5, 50 + dz));
-  const radar = new THREE.Group();
-  radar.position.set(30, 51, 44);
-  const dishM = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
-  const dish = new THREE.Mesh(new THREE.SphereGeometry(4.5, 20, 8, 0, TAU, 0, 0.85), dishM);
-  dish.rotation.x = -Math.PI / 2 + 0.3;
-  dish.position.y = 2.5;
-  radar.add(part(G.cyl, darkM, 0.5, 3, 0.5, 0, 1, 0), dish);
-  g.add(radar);
-  carrierParts.radar = radar;
-
-  // Launch-bay mouths on both sides of the prow
   const hangarDark = new THREE.MeshBasicMaterial({ color: 0x050608 });
   const hangarGlow = glow(2.2, 1.9, 1.3);
+
+  // ---------------- Twin Catamaran Sponsons (Port and Starboard Hulls) ----------------
   for (const side of [-1, 1]) {
-    const x = side * (halfWidthAt(HULL_HALF, -205) + 2.5);
-    g.add(part(G.box, hangarDark, 0.6, 8, 26, x, 3, -205), part(G.box, hangarGlow, 0.7, 0.35, 24, x, -0.6, -205), part(G.box, hangarGlow, 0.7, 0.35, 24, x, 6.6, -205));
+    const cx = side * 62;
+    // Main sponson hull
+    g.add(texBox(64, 38, 760, hullM, 40, cx, 4, -60));
+    // Lower beveled bilge armor
+    g.add(texBox(54, 16, 700, darkPlate, 30, cx, -16, -60));
+    // Outboard angled armor skirts
+    g.add(texBox(6, 26, 620, darkPlate, 30, cx + side * 34, 4, -60));
+    // Forward prow wedge
+    g.add(texBox(44, 28, 160, hullM, 16, cx + side * 4, 3, -480));
+    // Upper flight deck
+    const deckMesh = texBox(56, 1.8, 700, darkM, 25, cx, 23.5, -60);
+    g.add(deckMesh);
+    if (side === 1) carrierParts.deck = deckMesh;
+    // Catapult launch groove
+    g.add(part(G.box, darkPlate, 3, 0.4, 580, cx, 24.5, -110));
+    // Outboard secondary launch bays
+    g.add(part(G.box, hangarDark, 0.6, 9, 32, cx + side * 33, 5, -205));
+    g.add(part(G.box, hangarGlow, 0.7, 0.4, 30, cx + side * 33, 0.6, -205));
+    g.add(part(G.box, hangarGlow, 0.7, 0.4, 30, cx + side * 33, 9.4, -205));
   }
 
-  // Runway chase lights and deck-edge lights
+  // ---------------- Central Fly-Through Chasm / Through-Deck Tunnel ----------------
+  // Tunnel floor keel plate (solid foundation below tunnel)
+  g.add(texBox(58, 4, 820, darkPlate, 40, 0, -12, -60));
+  // Tunnel inner bulkheads (left and right interior walls)
+  g.add(texBox(4, 34, 780, darkPlate, 30, -28.5, 7, -60));
+  g.add(texBox(4, 34, 780, darkPlate, 30, 28.5, 7, -60));
+
+  // 15 Kenney-style structural rib arches along the tunnel
+  const archZs = [-440, -390, -340, -290, -240, -190, -140, -90, -40, 10, 60, 110, 160, 210, 260];
+  for (const z of archZs) {
+    // Left arch pillar
+    g.add(part(G.box, darkPlate, 2.5, 33, 4.5, -27, 7, z));
+    // Right arch pillar
+    g.add(part(G.box, darkPlate, 2.5, 33, 4.5, 27, 7, z));
+    // Top cross beam
+    g.add(part(G.box, darkPlate, 55, 3, 4.5, 0, 23.5, z));
+    // Amber hazard beacon caps
+    g.add(part(G.box, DECK_LINE, 1.2, 1.2, 5, -26.5, 23, z));
+    g.add(part(G.box, DECK_LINE, 1.2, 1.2, 5, 26.5, 23, z));
+    // Glowing cyan maintenance energy strips along inner walls
+    g.add(part(G.box, CARRIER_CORE, 0.4, 2, 36, -26.5, 6, z));
+    g.add(part(G.box, CARRIER_CORE, 0.4, 2, 36, 26.5, 6, z));
+  }
+
+  // Tunnel runway centerline chase lights
   const chaseZ = [];
-  for (let z = -285; z <= 160; z += 10) chaseZ.push(z);
+  for (let z = -440; z <= 280; z += 15) chaseZ.push(z);
   const chase = new THREE.InstancedMesh(G.box, new THREE.MeshBasicMaterial({ color: 0xffffff }), chaseZ.length);
   const mtx = new THREE.Matrix4(), q0 = new THREE.Quaternion();
-  chaseZ.forEach((z, i) => { chase.setMatrixAt(i, mtx.compose(V(0, 15.95, z), q0, V(1.4, 0.3, 0.8))); chase.setColorAt(i, CHASE_OFF); });
+  chaseZ.forEach((z, i) => {
+    chase.setMatrixAt(i, mtx.compose(V(0, -9.8, z), q0, V(2.2, 0.3, 1.2)));
+    chase.setColorAt(i, CHASE_OFF);
+  });
   g.add(chase);
   carrierParts.chase = chase;
   carrierParts.chaseCount = chaseZ.length;
+
+  // Deck edge indicator lights along upper flight decks
   const edgeZ = [];
-  for (let z = -290; z <= 165; z += 15) edgeZ.push(z);
-  const edge = new THREE.InstancedMesh(G.box, DECK_LINE, edgeZ.length * 2);
+  for (let z = -380; z <= 260; z += 20) edgeZ.push(z);
+  const edge = new THREE.InstancedMesh(G.box, DECK_LINE, edgeZ.length * 4);
   edgeZ.forEach((z, i) => {
-    const w = halfWidthAt(DECK_HALF, z) - 0.6;
-    edge.setMatrixAt(i * 2, mtx.compose(V(-w, 15.95, z), q0, V(0.6, 0.3, 1.4)));
-    edge.setMatrixAt(i * 2 + 1, mtx.compose(V(w, 15.95, z), q0, V(0.6, 0.3, 1.4)));
+    // Port deck edges (inner & outer)
+    edge.setMatrixAt(i * 4 + 0, mtx.compose(V(-90, 24.6, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 1, mtx.compose(V(-34, 24.6, z), q0, V(0.8, 0.3, 1.6)));
+    // Starboard deck edges (inner & outer)
+    edge.setMatrixAt(i * 4 + 2, mtx.compose(V(34, 24.6, z), q0, V(0.8, 0.3, 1.6)));
+    edge.setMatrixAt(i * 4 + 3, mtx.compose(V(90, 24.6, z), q0, V(0.8, 0.3, 1.6)));
   });
   g.add(edge);
-  for (const [x, z] of [[-40, -180], [40, -180], [-46, 60], [46, 60], [-40, 180], [40, 180]]) g.add(part(G.sphere, RUNNING, 1, 1, 1, x, 14, z));
 
-  // Accent strips. The fighters in the asset pack all carry a continuous lit line down the
-  // fuselage, and the carrier had nothing of the sort -- it read as a grey slab with lights
-  // scattered on it. A tube swept along the hull outline follows the taper exactly, where a row
-  // of boxes would stair-step at the bow where the hull narrows fastest.
-  const accent = (y, inset, radius, mat) => {
-    for (const side of [-1, 1]) {
-      const pts = [];
-      for (let z = -322; z <= 180; z += 14) pts.push(V(side * (halfWidthAt(HULL_HALF, z) + inset), y, z));
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, radius, 6, false), mat);
-      g.add(tube);
-    }
-  };
-  accent(15.4, 2.9, 0.45, DECK_LINE);     // the rim of the flight deck
-  accent(-5, 2.9, 0.35, CARRIER_CORE);    // a dimmer line low on the flank
-  // The deck reads as a slab with nothing holding it up. A dark rim under the lip gives it a
-  // thickness and puts the accent strip in shadow instead of floating.
-  for (const side of [-1, 1]) {
-    const pts = [];
-    for (let z = -322; z <= 180; z += 14) pts.push(V(side * (halfWidthAt(HULL_HALF, z) + 2.3), 13.4, z));
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length, 1.9, 4, false), darkM));
-  }
+  // ---------------- Overhead Command Citadel & Connecting Bridge ----------------
+  // Structural bridge cross-span connecting the two hulls over the tunnel
+  g.add(texBox(76, 8, 200, darkPlate, 20, 0, 26, 10));
+  // Main command citadel
+  g.add(texBox(60, 22, 160, hullM, 20, 0, 41, 15));
+  // Upper observation deck
+  g.add(texBox(40, 12, 110, hullM, 15, 0, 56, 20));
+  // Panoramic bridge windows
+  g.add(part(G.box, WINDOW, 40.5, 2.2, 90, 0, 58, 20));
+  g.add(part(G.box, windowDim, 41.5, 1.1, 95, 0, 50, 18));
+  g.add(part(G.box, windowDim, 41.5, 1.1, 95, 0, 36, 15));
 
-  // Engine block: five nozzles with glowing cores and flickering plumes
-  g.add(texBox(78, 22, 18, darkPlate, 20, 0, -2, 186));
-  for (const x of [-28, -14, 0, 14, 28]) {
-    const ring = part(G.cyl, darkM, 6, 6, 6, x, -2, 197);
-    ring.rotation.x = Math.PI / 2;
-    const core = part(G.cyl, CARRIER_CORE, 5, 0.4, 5, x, -2, 200.1);
-    core.rotation.x = Math.PI / 2;
-    const plume = new THREE.Mesh(new THREE.ConeGeometry(5, 55, 24, 1, true), plumeMat);
-    plume.rotation.x = Math.PI / 2;
-    plume.position.set(x, -2, 200 + 27.5);
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: new THREE.Color(0.25, 0.5, 1.1), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    halo.position.set(x, -2, 203);
-    halo.scale.setScalar(16);
-    g.add(ring, core, plume, halo);
+  // Dual rotating radar arrays on port and starboard bridge wings
+  const dishM = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
+  carrierParts.radars = [];
+  for (const rX of [-22, 22]) {
+    const radar = new THREE.Group();
+    radar.position.set(rX, 67, 25);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(4.2, 18, 8, 0, TAU, 0, 0.85), dishM);
+    dish.rotation.x = -Math.PI / 2 + 0.3;
+    dish.position.y = 2.4;
+    radar.add(part(G.cyl, darkM, 0.5, 2.8, 0.5, 0, 1, 0), dish);
+    g.add(radar);
+    carrierParts.radars.push(radar);
   }
+  carrierParts.radar = carrierParts.radars[0];
 
-  // Hull windows, surface detail and the painted name on both flanks
-  const win = new THREE.InstancedMesh(G.box, windowDim, 260);
-  const greebles = new THREE.InstancedMesh(G.box, darkM, 120);
-  for (let i = 0; i < 260; i++) {
-    const z = rand(-250, 165), side = i % 2 ? 1 : -1;
-    win.setMatrixAt(i, mtx.compose(V(side * (halfWidthAt(HULL_HALF, z) + 2.45), [-7, -3, 1, 5][i % 4], z), q0, V(0.3, 0.8, 1.6)));
+  // Comms mast & sensor needles
+  g.add(part(G.cyl, darkM, 0.6, 22, 0.6, 0, 72, 25));
+  g.add(part(G.sphere, RUNNING, 1.2, 1.2, 1.2, 0, 83.5, 25));
+  for (const dz of [-8, 0, 8]) g.add(part(G.cyl, darkM, 0.2, 9, 0.2, 12, 65, 20 + dz));
+
+  // Hull windows and surface greebles along outer sponson flanks
+  const win = new THREE.InstancedMesh(G.box, windowDim, 280);
+  const greebles = new THREE.InstancedMesh(G.box, darkM, 140);
+  for (let i = 0; i < 280; i++) {
+    const z = rand(-380, 250), side = i % 2 ? 1 : -1;
+    win.setMatrixAt(i, mtx.compose(V(side * 95.8, [-6, -2, 2, 8][i % 4], z), q0, V(0.3, 0.9, 2.2)));
   }
-  for (let i = 0; i < 120; i++) {
-    const z = rand(-240, 160), side = i % 2 ? 1 : -1, s = V(rand(1, 3), rand(1.5, 5), rand(4, 18));
-    greebles.setMatrixAt(i, mtx.compose(V(side * (halfWidthAt(HULL_HALF, z) + 2.3 + s.x / 2), rand(-11, 9), z), q0, s));
+  for (let i = 0; i < 140; i++) {
+    const z = rand(-370, 240), side = i % 2 ? 1 : -1, s = V(rand(1, 3.5), rand(2, 6), rand(6, 22));
+    greebles.setMatrixAt(i, mtx.compose(V(side * (95.5 + s.x / 2), rand(-12, 14), z), q0, s));
   }
   g.add(win, greebles);
+
+  // Painted nameplates on outer sponson flanks
   const nameMat = new THREE.MeshStandardMaterial({ map: nameplateTexture(), transparent: true, roughness: 0.7, depthWrite: false });
   for (const side of [-1, 1]) {
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(110, 13.75), nameMat);
-    plate.position.set(side * (halfWidthAt(HULL_HALF, -60) + 2.7), 4, -60);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(120, 15), nameMat);
+    plate.position.set(side * 96.2, 5, -60);
     plate.rotation.y = side * Math.PI / 2;
     g.add(plate);
   }
 
-  // Point-defence turrets along the deck edges
-  for (const [x, z] of [[-30, -150], [30, -150], [-36, 100], [-34, 150], [34, 150], [0, -262]]) {
-    g.add(part(G.cyl, darkM, 2.2, 1.6, 2.2, x, 15.8, z));
+  // ---------------- Twin Engine Arrays (8 Nozzles Total: 4 Port, 4 Starboard) ----------------
+  for (const side of [-1, 1]) {
+    const cx = side * 62;
+    // Sponson rear engine housing
+    g.add(texBox(58, 22, 24, darkPlate, 15, cx, 3, 322));
+    for (const dx of [-18, -6, 6, 18]) {
+      const ex = cx + dx;
+      const ring = part(G.cyl, darkM, 5.2, 6, 5.2, ex, 3, 334);
+      ring.rotation.x = Math.PI / 2;
+      const core = part(G.cyl, CARRIER_CORE, 4.4, 0.4, 4.4, ex, 3, 337.1);
+      core.rotation.x = Math.PI / 2;
+      const plume = new THREE.Mesh(new THREE.ConeGeometry(4.5, 52, 24, 1, true), plumeMat);
+      plume.rotation.x = Math.PI / 2;
+      plume.position.set(ex, 3, 337 + 26);
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: new THREE.Color(0.25, 0.5, 1.1), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      halo.position.set(ex, 3, 339);
+      halo.scale.setScalar(18);
+      g.add(ring, core, plume, halo);
+    }
+  }
+
+  // ---------------- Point-Defence Flak Turrets (10 Turrets) ----------------
+  const turretLocs = [
+    [-32, 24, -420], [32, 24, -420],   // Prow tunnel mouth guards
+    [-86, 24, -160], [-86, 24, 140],   // Port flight deck
+    [86, 24, -160], [86, 24, 140],     // Starboard flight deck
+    [-20, 65, 20], [20, 65, 20],       // Command citadel bridge roof
+    [-32, 24, 290], [32, 24, 290],     // Stern tunnel exit guards
+  ];
+  for (const [x, y, z] of turretLocs) {
+    g.add(part(G.cyl, darkM, 2.4, 1.6, 2.4, x, y, z));
     const head = new THREE.Group();
-    head.position.set(x, 17.6, z);
-    head.add(part(G.box, hullM, 3, 1.6, 3.6));
+    head.position.set(x, y + 1.8, z);
+    head.add(part(G.box, hullM, 3.2, 1.8, 3.8));
     for (const s of [-1, 1]) {
-      const barrel = part(G.cyl, darkM, 0.18, 3.4, 0.18, s * 0.6, 0.2, 2.6);
+      const barrel = part(G.cyl, darkM, 0.2, 3.6, 0.2, s * 0.7, 0.2, 2.8);
       barrel.rotation.x = Math.PI / 2;
       head.add(barrel);
     }
@@ -2678,7 +2718,11 @@ scene.add(carrier);
 const _ta = V(), _tb = V(), _tq2 = new THREE.Quaternion();
 function updateCarrier(dt) {
   const cp = carrierParts;
-  cp.radar.rotation.y += dt * 0.7;
+  if (cp.radars && cp.radars.length) {
+    for (const r of cp.radars) r.rotation.y += dt * 0.7;
+  } else if (cp.radar) {
+    cp.radar.rotation.y += dt * 0.7;
+  }
   cp.chaseT += dt;
   for (let i = 0; i < cp.chaseCount; i++) {
     const ph = (((i - cp.chaseT * 16) % cp.chaseCount) + cp.chaseCount) % cp.chaseCount;
@@ -2686,11 +2730,30 @@ function updateCarrier(dt) {
   }
   cp.chase.instanceColor.needsUpdate = true;
   plumeMat.uniforms.uTime.value = clock;
+
+  // Fly-through tunnel shelter & shield maintenance field
+  if (player.alive) {
+    const pp = player.rig.position;
+    const dx = pp.x - CARRIER_POS.x, dy = pp.y - CARRIER_POS.y, dz = pp.z - CARRIER_POS.z;
+    const inTunnel = Math.abs(dx) < 26 && dy > -10 && dy < 25 && dz > -460 && dz < 320;
+    if (inTunnel) {
+      if (player.shield < 100) {
+        player.shield = Math.min(100, player.shield + dt * 15);
+        player.shieldFlash = Math.max(player.shieldFlash, 0.15);
+      }
+      if (player.inBeam) {
+        player.inBeam = false;
+        player.beamBy = null;
+        player.tractor = 0;
+      }
+    }
+  }
+
   if (state !== 'play') return;
   // Point defence: each turret tracks the nearest Swarm ship within range and fires tracers at it.
   for (const t of cp.turrets) {
     t.cd -= dt;
-    let best = null, bd = 320 * 320;
+    let best = null, bd = 340 * 340;
     for (const e of enemies) {
       if (e.dead || e.state === 'show') continue;
       const d2 = e.obj.position.distanceToSquared(t.world);
@@ -2702,7 +2765,7 @@ function updateCarrier(dt) {
     if (t.cd > 0) continue;
     t.cd = rand(0.35, 0.6);
     t.side = -t.side;
-    _tb.set(t.side * 0.6, 0.2, 4.3).applyQuaternion(t.head.getWorldQuaternion(_tq2)).add(t.world);
+    _tb.set(t.side * 0.7, 0.2, 4.3).applyQuaternion(t.head.getWorldQuaternion(_tq2)).add(t.world);
     _ta.sub(_tb).normalize();
     _ta.x += rand(-0.025, 0.025); _ta.y += rand(-0.025, 0.025); _ta.z += rand(-0.025, 0.025);
     spawnBolt(_tb, _ta.normalize(), 280, 'carrier', 1);
@@ -5169,11 +5232,11 @@ function setupTitle() {
     e.phase = i * 0.18;
   }
 }
-const _tc = V(0, -10, -60);
+const _tc = V(0, -5, -40);
 function titleCamera(dt) {
   titleT += dt;
-  const a = titleT * 0.05 + 0.8;
-  camera.position.set(Math.cos(a) * 380, 70 + Math.sin(titleT * 0.13) * 20, Math.sin(a) * 380 - 60);
+  const a = titleT * 0.04 + 0.8;
+  camera.position.set(Math.cos(a) * 620, 110 + Math.sin(titleT * 0.1) * 30, Math.sin(a) * 620 - 40);
   camera.lookAt(_tc);
 }
 
