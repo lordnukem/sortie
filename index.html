@@ -124,6 +124,17 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .install { display: flex; flex-direction: column; gap: 10px; }
 .install .row { gap: 12px; }
 .links { display: flex; gap: 20px; flex-wrap: wrap; }
+.difflever { display: flex; gap: 10px; flex-wrap: wrap; }
+.diffopt {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--dim); background: none; border: 1px solid var(--line); padding: 9px 16px; cursor: pointer;
+}
+.diffopt:hover { color: var(--ink); }
+.diffopt.on { color: var(--void); background: var(--hud); border-color: var(--hud); }
+.diffopt:disabled { opacity: 0.4; cursor: default; }
+.diffopt:disabled:hover { color: var(--dim); }
+.diffopt.on:disabled:hover { color: var(--void); }
+.diffopt:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
 .link {
   font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--hud); text-decoration: none; border-bottom: 1px solid transparent; padding-bottom: 2px;
@@ -217,6 +228,11 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <h2>Gold leader board</h2>
       <p class="board-src"><span id="tBoardWhich">This browser</span><button class="board-swap" id="tBoardSwap" type="button" hidden>Show global</button></p>
       <div class="board-scroll" id="tBoardScroll"><table class="board" id="tBoard"></table></div>
+    </div>
+    <div class="panel" id="diffPanel">
+      <h2>Difficulty</h2>
+      <div class="difflever" id="diffLever"></div>
+      <p class="sub" id="diffNote"></p>
     </div>
     <div class="actions">
       <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
@@ -3537,6 +3553,7 @@ function saveRun() {
     v: SAVE_V, at: Date.now(), wave, score, lives, kills, shots, hits,
     rocks: rocksDestroyed, nextExtra, carryMissiles, seconds: runT,
     hull: player.hull, shield: player.shield, missiles: player.missiles,
+    level: LEVEL.id,
     // No flight: it is checkpointed at the top of a wave and the flight stands down at the end
     // of the one before, so there is never anybody on the wing at this moment.
     log: sortieLog,
@@ -3577,21 +3594,21 @@ async function fetchGlobal() {
 // What the run actually was, for the server to sanity-check against the score. None of it is
 // proof -- anyone reading the client can forge all of it -- but it keeps `curl -d score=9999999`
 // out of the table, which is most of what a public board suffers from.
-function runTelemetry(name, sc, wv) {
+function runTelemetry(name, sc, wv, level) {
   return {
-    name, score: sc, wave: wv,
+    name, score: sc, wave: wv, level,
     kills, shots, hits, rocks: rocksDestroyed,
     seconds: Math.round(runT),
     tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } })(),
     localTime: new Date().toString().slice(0, 33),
   };
 }
-async function postGlobal(name, sc, wv) {
+async function postGlobal(name, sc, wv, level) {
   try {
     const res = await fetch(`${API}/scores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(runTelemetry(name, sc, wv)),
+      body: JSON.stringify(runTelemetry(name, sc, wv, level)),
       signal: AbortSignal.timeout(8000),
     });
     const j = await res.json().catch(() => ({}));
@@ -3629,7 +3646,7 @@ function globalRank(sc) {
 }
 function postScore(name, sc, wv) {
   const b = loadBoard();
-  const row = { name, score: sc, wave: wv, at: Date.now() };
+  const row = { name, score: sc, wave: wv, at: Date.now(), level: LEVEL.id };
   b.push(row);
   b.sort((x, y) => y.score - x.score);
   const kept = b.slice(0, BOARD_MAX);
@@ -3818,7 +3835,7 @@ function updateEnemy(e, dt) {
       steer(e, _ea, dt, e.spd);
       _ef.set(0, 0, 1).applyQuaternion(e.heading);
       _ed.copy(_ea).sub(pos).normalize();
-      if (e.fireCd <= 0 && dist < 340 && _ef.dot(_ed) > 0.985) { enemyFire(e, _ea); e.fireCd = (e.d.fireRate * rand(0.8, 1.5)) / diff(); }
+      if (e.fireCd <= 0 && dist < 340 && _ef.dot(_ed) > 0.985) { enemyFire(e, _ea); e.fireCd = (e.d.fireRate * rand(0.8, 1.5)) / fireScale(); }
       if (e.type === 'warden' && !e.captive && prey === PLAYER && e.beamCd <= 0 && dist < 165 && !player.capturing) {
         e.state = 'beam'; e.beamT = 0; e.t = 0;
         sfx.beam();
@@ -3841,7 +3858,7 @@ function updateEnemy(e, dt) {
   if (player.alive && player.inv <= 0 && !player.inBeam && pos.distanceTo(player.rig.position) < e.r + 2.5) {
     // Eased a little in the early waves so an accidental clip on wave 1 is not instantly fatal,
     // but it never becomes cheap.
-    damagePlayer((RAM[e.type] || 60) * (0.7 + 0.3 * diff()), pos);
+    damagePlayer((RAM[e.type] || 60) * (0.7 + 0.3 * diff()) * LEVEL.bite, pos);
     const survives = RAM_SURVIVES[e.type];
     if (survives === undefined) damageEnemy(e, 99, false);
     else if (survives > 0) damageEnemy(e, survives, false, pos);
@@ -3908,7 +3925,7 @@ function updateRaider(e, dt, prey, hasPrey, dist) {
     leadPoint(e.obj.position, prey, ENEMY_BOLT_SPEED, _ea);
     _ea.x += rand(-4, 4); _ea.y += rand(-4, 4); _ea.z += rand(-4, 4);
     enemyFire(e, _ea, true);
-    e.fireCd = (e.d.fireRate * rand(0.8, 1.3)) / diff();
+    e.fireCd = (e.d.fireRate * rand(0.8, 1.3)) / fireScale();
   }
   e.humT -= dt;
   if (e.humT <= 0) { e.humT = 0.22; sfx.saucer(clamp(150 / (dist + 30), 0, 1), panAt(e.obj.position)); }   // uncapped, so no voice to filter
@@ -3922,7 +3939,7 @@ function enemyFire(e, aim, anyDirection = false) {
   _fd.copy(aim).sub(_fo).normalize();
   const spread = 0.02 + 0.05 * (1 - diff());
   _fd.x += rand(-spread, spread); _fd.y += rand(-spread, spread); _fd.z += rand(-spread, spread);
-  spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
+  spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat() * LEVEL.bite);
   const efD = _fo.distanceTo(player.rig.position);
   sfx.enemyLaser(clamp(90 / (efD + 20), 0.08, 1), panAt(_fo), efD);
 }
@@ -4002,7 +4019,7 @@ function spawnBoss(n) {
   const e = makeEnemy('boss', origin, look.quaternion);
   e.state = 'boss';
   e.escortCd = 18;
-  // Each boss is tougher than the last. diff() flattens at wave 7, so without its own tier the
+  // Each boss is tougher than the last. diff() flattens at wave 9, so without its own tier the
   // second and third capital ships would be identical to the first.
   const tier = bossTier(n);
   e.hp = Math.round(e.d.hp * tier);
@@ -4254,12 +4271,12 @@ function updateBoss(e, dt) {
   if (player.alive && e.fireCd <= 0) {
     const guns = exposed ? [e.obj.position] : ud.weak.filter((w) => !w.dead).map((w) => w.world);
     if (guns.length) {
-      e.fireCd = (e.d.fireRate * rand(0.8, 1.2)) / Math.max(0.4, diff());
+      e.fireCd = (e.d.fireRate * rand(0.8, 1.2)) / Math.max(0.4, fireScale());
       for (const g of guns) {
         leadPoint(g, PLAYER, ENEMY_BOLT_SPEED, _bb);
         _ba.copy(_bb).sub(g).normalize();
         _ba.x += rand(-0.03, 0.03); _ba.y += rand(-0.03, 0.03); _ba.z += rand(-0.03, 0.03);
-        spawnBolt(g, _ba.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat());
+        spawnBolt(g, _ba.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat() * LEVEL.bite);
         const gD = g.distanceTo(pp);
       sfx.enemyLaser(clamp(120 / (gD + 20), 0.1, 1), panAt(g), gD);
       }
@@ -4601,7 +4618,7 @@ function updateRocks(dt) {
       if (_rk.z > 450) k.obj.position.z -= 900; else if (_rk.z < -450) k.obj.position.z += 900;
     } else if (_rk.lengthSq() > 1000 * 1000) { k.dead = true; continue; }
     if (player.alive && player.inv <= 0 && _rk.length() < k.r + 2.5) {
-      damagePlayer(k.size * 20 * (0.7 + 0.3 * diff()), k.obj.position);
+      damagePlayer(k.size * 20 * (0.7 + 0.3 * diff()) * LEVEL.bite, k.obj.position);
       shake = Math.max(shake, 0.7);
       splitRock(k, true);
       continue;
@@ -4985,14 +5002,36 @@ function finishCapture() {
 }
 
 // ---------------------------------------------------------------- waves
-// Difficulty: the Swarm starts at a quarter strength and reaches full strength by wave 7.
-const diff = () => Math.min(1, 0.25 + 0.125 * Math.max(0, wave - 1));
-// diff() is capped at wave 7, so every boss from the second one onward would otherwise face
+// Four levels. `bite` scales what a hit takes off you, `rate` how often the Swarm shoots,
+// `ramp` how fast it reaches full strength, and `score` what the run is finally worth.
+// Normal is the game as tuned, which is half as hard at the start as it used to be.
+const DIFFS = [
+  { id: 'recruit', name: 'Recruit', sub: 'Learning the cockpit',   bite: 0.6,  rate: 0.8,  ramp: 0.8,  score: 0.6 },
+  { id: 'normal',  name: 'Normal',  sub: 'The sortie as flown',    bite: 1,    rate: 1,    ramp: 1,    score: 1 },
+  { id: 'veteran', name: 'Veteran', sub: 'They shoot straighter',  bite: 1.45, rate: 1.25, ramp: 1.2,  score: 1.6 },
+  { id: 'ace',     name: 'Ace',     sub: 'No allowances made',     bite: 1.9,  rate: 1.5,  ramp: 1.35, score: 2.4 },
+];
+const DIFF_KEY = 'sortie.difficulty';
+let LEVEL = DIFFS[1];
+function setLevel(id) {
+  LEVEL = DIFFS.find((d) => d.id === id) || DIFFS[1];
+  try { localStorage.setItem(DIFF_KEY, LEVEL.id); } catch { /* storage unavailable */ }
+  refreshDifficulty();
+}
+try { LEVEL = DIFFS.find((d) => d.id === localStorage.getItem(DIFF_KEY)) || DIFFS[1]; } catch { /* storage unavailable */ }
+
+const diff = () => Math.min(1, (0.125 + 0.109375 * Math.max(0, wave - 1)) * LEVEL.ramp);
+// Rate of fire is deliberately NOT halved along with damage. diff() is a divisor here, so
+// the gentler opening curve would have doubled every cooldown on top of the lighter hits --
+// a quarter of the old pressure rather than half. The floor keeps wave 1 shooting as often
+// as it always did, and the 50% cut lands where it was asked for: on what each hit takes.
+const fireScale = () => Math.max(0.25, diff()) * LEVEL.rate;
+// diff() is capped at wave 9, so every boss from the second one onward would otherwise face
 // identical escorts. Bosses get their own tier instead of re-tuning the whole game's ramp.
 const bossTier = (n) => 1 + Math.max(0, n / BOSS_EVERY - 1) * 0.3;
-// How hard enemy fire bites, by how deep into the sortie you are. diff() is capped at wave 7,
+// How hard enemy fire bites, by how deep into the sortie you are. diff() is capped at wave 9,
 // so on its own the game stopped getting more dangerous there -- a drone needed 33 hits to
-// strip a full bar at wave 7 and still needed 33 at wave 30. This keeps climbing.
+// strip a full bar at wave 9 and still needed 33 at wave 30. This keeps climbing.
 const threat = () => 1 + Math.max(0, wave - 1) * 0.05;
 // What running into something costs. Ramming used to be the efficient play: a flat 30 damage
 // killed anything outright, so a full health bar was worth roughly seven free kills. Now the
@@ -5205,6 +5244,7 @@ function startGame() {
 // have started anyway.
 function continueGame(r) {
   audioUnlock();
+  setLevel(r.level || 'normal');
   closeEntry();
   fullscreenOnLaunch();
   clearWorld();
@@ -5359,7 +5399,7 @@ function confirmEntry() {
   $('dBoardPanel').hidden = renderBoard($('dBoard'), mine, null, { window: true }) === 0;
   $('dBoardWhich').textContent = 'This browser · sending…';
   sfx.rescued();
-  postGlobal(name, sc, wv).then((out) => {
+  postGlobal(name, sc, wv, LEVEL.id).then((out) => {
     if (out.ok && globalBoard) {
       const at = globalBoard.findIndex((e) => e.name === name && e.score === sc);
       renderBoard($('dBoard'), at, globalBoard, { window: true });
@@ -5380,7 +5420,10 @@ function gameOver() {
   saveHi();
   document.exitPointerLock?.();
   const ratio = shots ? (hits / shots) * 100 : 0;
-  $('dScore').textContent = score.toLocaleString();
+  // What the run is worth once the level is taken into account, so one board can rank runs
+  // flown at different settings against each other.
+  const finalScore = Math.round(score * LEVEL.score);
+  $('dScore').textContent = finalScore.toLocaleString();
   $('dWaves').textContent = String(Math.max(0, wave - (waveActive ? 1 : 0)));
   $('dKills').textContent = String(kills);
   $('dRocks').textContent = String(rocksDestroyed);
@@ -5398,13 +5441,13 @@ function gameOver() {
     <td><span class="sw" style="--c: ${r.perfect ? 'var(--green)' : 'var(--dim)'}"></span>Wave ${r.wave}<span class="tag">${KIND[r.kind]} · ${r.time.toFixed(0)}s · ${r.met}/${r.total} objectives</span></td>
     <td class="n">${(r.earned + r.bonus).toLocaleString()}${r.bonus ? `<span class="tag">+${r.bonus.toLocaleString()} bonus</span>` : ''}</td></tr>`).join('');
   $('dLogPanel').hidden = sortieLog.length === 0;
-  $('dRank').textContent = score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer';
+  $('dRank').textContent = (score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer') + (LEVEL.score !== 1 ? ` · ${score.toLocaleString()} x ${LEVEL.score} ${LEVEL.name}` : '');
   // Name entry first if the score earned it; the board goes up either way, once there is one.
   closeEntry();
   const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
   // Either board is reason enough to ask for a name: a score can miss this browser's top twenty
   // and still make the global one, and the reverse is just as likely on a shared machine.
-  if (boardRank(score) >= 0 || globalRank(score) >= 0) openEntry(score, wavesFlown);
+  if (boardRank(finalScore) >= 0 || globalRank(finalScore) >= 0) openEntry(finalScore, wavesFlown);
   const showGlobal = globalBoard && globalBoard.length;
   $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
   $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
@@ -5594,6 +5637,20 @@ function routeHash() {
 window.addEventListener('hashchange', routeHash);
 window.addEventListener('popstate', routeHash);
 
+function refreshDifficulty() {
+  const r = loadRun();
+  // While a run is waiting to be continued the lever shows that run's level, not the stored
+  // preference: the two differ whenever the preference was changed after the run was saved, and
+  // showing the preference would name the wrong difficulty -- and the wrong multiplier -- for
+  // the sortie the Continue button is about to resume.
+  const shown = (r && DIFFS.find((d) => d.id === r.level)) || LEVEL;
+  $('diffLever').innerHTML = DIFFS.map((d) =>
+    `<button class="diffopt ${d.id === shown.id ? 'on' : ''}" type="button" data-diff="${d.id}"${r ? ' disabled' : ''}>${d.name}</button>`).join('');
+  $('diffNote').textContent = r
+    ? `${shown.name} · locked until this run ends`
+    : `${shown.sub} · scores count for ${shown.score}x`;
+}
+
 // The title screen reads the saved run every time it is shown, so quitting mid-run and coming
 // back offers the continue without a reload.
 function refreshTitle() {
@@ -5608,6 +5665,7 @@ function refreshTitle() {
   $('startHint').textContent = r
     ? 'Enter or A continues · N or X starts a new sortie'
     : 'Enter · controller Start or A';
+  refreshDifficulty();
   drawTitleBoard();
 }
 function drawTitleBoard() {
@@ -5930,6 +5988,10 @@ function updateTouchUI() {
 }
 
 $('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) startGame(); });
+$('diffLever').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-diff]');
+  if (b) setLevel(b.dataset.diff);
+});
 $('tBoardSwap').addEventListener('click', () => {
   boardView = boardView === 'global' ? 'local' : 'global';
   drawTitleBoard();

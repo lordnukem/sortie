@@ -36,7 +36,7 @@
         <input type="text" id="boardFilter" placeholder="Find a name or a country" aria-label="Filter the board" style="flex:1 1 200px">
       </div>
       <div class="scroll"><table>
-        <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Wave</th><th>Time</th><th>Country</th><th>When</th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Wave</th><th>Level</th><th>Time</th><th>Country</th><th>When</th></tr></thead>
         <tbody id="board"></tbody>
       </table></div>
       <div class="row" style="margin-top:12px">
@@ -51,6 +51,7 @@
   </div>
 
   <div class="grid cols-3">
+    <section class="panel"><h2>Difficulty</h2><div id="levels"></div></section>
     <section class="panel"><h2>Operating system</h2><div id="os"></div></section>
     <section class="panel"><h2>Browser</h2><div id="browser"></div></section>
     <section class="panel"><h2>Device</h2><div id="device"></div></section>
@@ -116,9 +117,10 @@
       ? shown.map(({ r, i }) => `<tr>
           <td class="n">${i + 1}</td><td class="nm">${esc(r.name)}</td>
           <td class="n">${num(r.score)}</td><td class="n">${num(r.wave)}</td>
+          <td>${r.level ? esc(r.level[0].toUpperCase() + r.level.slice(1)) : '—'}</td>
           <td class="n">${dur(r.seconds)}</td><td>${esc(r.country || '—')}</td>
           <td>${when(r.created_at)}</td></tr>`).join('')
-      : `<tr><td colspan="7" class="empty">${all.length ? 'nothing matches' : 'No runs on the board yet. Be first.'}</td></tr>`;
+      : `<tr><td colspan="8" class="empty">${all.length ? 'nothing matches' : 'No runs on the board yet. Be first.'}</td></tr>`;
     const more = $('boardMore');
     more.hidden = !!q || hits.length <= PAGE;
     more.textContent = expanded ? `Show top ${PAGE}` : `Show all ${hits.length}`;
@@ -131,6 +133,7 @@
   drawBoard();
 
   drawBars($('countries'), s.countries, { empty: 'no locations recorded yet' });
+  drawBars($('levels'), s.levels);
   drawBars($('os'), s.os, { empty: 'nothing yet' });
   drawBars($('browser'), s.browser, { empty: 'nothing yet' });
   drawBars($('device'), s.device, { empty: 'nothing yet' });

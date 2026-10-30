@@ -39,6 +39,7 @@ db.exec(`
     name TEXT NOT NULL,
     score INTEGER NOT NULL,
     wave INTEGER NOT NULL,
+    level TEXT,
     kills INTEGER NOT NULL DEFAULT 0,
     shots INTEGER NOT NULL DEFAULT 0,
     hits INTEGER NOT NULL DEFAULT 0,
@@ -58,16 +59,17 @@ db.exec(`
 // Columns added after the first rows were already stored. SQLite has no "add column if missing",
 // so the attempt is made and the duplicate-column error is the expected outcome on every boot
 // after the first.
-for (const [col, type] of [['lat', 'REAL'], ['lon', 'REAL'], ['cc', 'TEXT']]) {
+for (const [col, type] of [['lat', 'REAL'], ['lon', 'REAL'], ['cc', 'TEXT'], ['level', 'TEXT']]) {
   for (const table of ['scores', 'geo_cache']) {
+    if (col === 'level' && table !== 'scores') continue;
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); } catch { /* already there */ }
   }
 }
 const insert = db.prepare(`INSERT INTO scores
-  (name, score, wave, kills, shots, hits, rocks, seconds, created_at, client_tz, client_time,
+  (name, score, wave, level, kills, shots, hits, rocks, seconds, created_at, client_tz, client_time,
    ip, country, region, city, lat, lon, cc, ua, os, browser, device, flags)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-const topQ = db.prepare(`SELECT name, score, wave, created_at, country FROM scores
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+const topQ = db.prepare(`SELECT name, score, wave, level, created_at, country FROM scores
   ORDER BY score DESC, id ASC LIMIT ?`);
 const rankQ = db.prepare('SELECT COUNT(*) AS n FROM scores WHERE score > ?');
 const geoGet = db.prepare('SELECT country, region, city, lat, lon, cc, at FROM geo_cache WHERE ip = ?');
@@ -83,6 +85,7 @@ const int = (v, lo, hi) => {
 // Plausibility, not proof. Anyone who reads the minified client can post numbers that satisfy
 // all of this; the point is to cost them an afternoon rather than a curl command, and to keep
 // the obviously impossible out of the table.
+const LEVEL_SCORE = { recruit: 0.6, normal: 1, veteran: 1.6, ace: 2.4 };
 const WAVE_MAX = 400;
 function judge(r) {
   const bad = [], soft = [];
@@ -94,7 +97,7 @@ function judge(r) {
   // A wave cannot be cleared instantly: the spawn queue alone takes this long to deliver.
   if (r.seconds > 0 && r.seconds < r.wave * 8) bad.push('too-fast');
   // The richest plausible wave: an ace plus a capital escort plus a generous pile of everything.
-  const ceiling = 2000 + r.wave * 14000 + r.kills * 1200 + r.rocks * 150;
+  const ceiling = (2000 + r.wave * 14000 + r.kills * 1200 + r.rocks * 150) * (LEVEL_SCORE[r.level] || 1);
   if (r.score > ceiling) bad.push('score>ceiling');
   if (r.shots === 0 && r.kills > 0) soft.push('no-shots');
   if (r.seconds === 0) soft.push('no-clock');
@@ -172,10 +175,11 @@ function publicStats() {
     countries: db.prepare(`SELECT country AS k, cc, COUNT(*) AS n, MAX(score) AS best
       FROM scores WHERE country IS NOT NULL GROUP BY country ORDER BY n DESC`).all(),
     os: statCounts('os'), browser: statCounts('browser'), device: statCounts('device'),
+    levels: statCounts('level'),
     // A run per day, for the activity strip.
     daily: db.prepare(`SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n
       FROM scores GROUP BY day ORDER BY day DESC LIMIT 60`).all(),
-    board: db.prepare(`SELECT name, score, wave, seconds, created_at, country, cc
+    board: db.prepare(`SELECT name, score, wave, level, seconds, created_at, country, cc
       FROM scores ORDER BY score DESC, id ASC LIMIT ?`).all(BOARD_KEEP),
   };
 }
@@ -215,7 +219,7 @@ function tokenOk(token) {
   return want.length === sig.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(sig));
 }
 const bearer = (req) => String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-const ADMIN_COLS = ['id', 'created_at', 'name', 'score', 'wave', 'kills', 'shots', 'hits', 'rocks',
+const ADMIN_COLS = ['id', 'created_at', 'name', 'score', 'wave', 'level', 'kills', 'shots', 'hits', 'rocks',
   'seconds', 'ip', 'country', 'region', 'city', 'lat', 'lon', 'cc', 'os', 'browser', 'device',
   'client_tz', 'client_time', 'flags', 'ua'];
 const adminRows = (limit, offset) => db.prepare(
@@ -304,6 +308,7 @@ const server = http.createServer(async (req, res) => {
       name: String(body.name || '').toUpperCase().slice(0, 3),
       score: int(body.score, 0, 50e6),
       wave: int(body.wave, 0, WAVE_MAX),
+      level: ['recruit', 'normal', 'veteran', 'ace'].includes(body.level) ? body.level : 'normal',
       kills: int(body.kills, 0, 1e6),
       shots: int(body.shots, 0, 1e7),
       hits: int(body.hits, 0, 1e7),
@@ -315,7 +320,7 @@ const server = http.createServer(async (req, res) => {
     const d = describe(req.headers['user-agent']);
     const geo = await geolocate(ip);
     insert.run(
-      r.name, r.score, r.wave, r.kills, r.shots, r.hits, r.rocks, r.seconds,
+      r.name, r.score, r.wave, r.level, r.kills, r.shots, r.hits, r.rocks, r.seconds,
       new Date().toISOString(),
       String(body.tz || '').slice(0, 64) || null,
       String(body.localTime || '').slice(0, 40) || null,
