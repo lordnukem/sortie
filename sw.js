@@ -6,7 +6,7 @@
 //   - everything else goes cache-first, because the assets are large, immutable in practice, and
 //     the whole point is that a bad connection does not stop a sortie.
 // Bumping CACHE on deploy drops the previous generation wholesale.
-const CACHE = 'sortie-v6';
+const CACHE = 'sortie-v7';
 
 // Fetched eagerly on install so the first offline launch works. Deliberately short: the voice
 // pack and ship models are large and arrive on demand through the cache-first path.

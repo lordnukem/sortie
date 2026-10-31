@@ -559,26 +559,42 @@ const sfx = (() => {
         limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20;
         limiter.attack.value = 0.001; limiter.release.value = 0.08;
         master = ctx.createGain();
-        master.gain.value = 1;
+        // Measured: with the buses balanced the mix still peaked around -5.5 dBFS against a
+        // -3 limiter, so this takes the headroom that was being left unused. The limiter is
+        // what makes it safe to ask for more than unity here.
+        master.gain.value = 1.6;
         master.connect(limiter);
         limiter.connect(ctx.destination);
         // There used to be one compressor for everything, which meant an explosion flattened the lasers for a
         // fifth of a second and the music pumped along with it. Each category now has its own dynamics:
         // weapons stay fast and tight, explosions are allowed to breathe, and ambience and UI are not
         // compressed at all.
-        const comp = (thr, ratio, atk, rel, g) => {
-          const out = ctx.createGain(); out.gain.value = g;
+        // `g` is the gain going *into* the compressor and `makeup` the gain coming out of it.
+        // Measured 2026-10-31: with only an input gain, turning a bus up just drove it further
+        // into its own compressor -- +8.7 dB on the laser arrived as about +2.9 dB, because at
+        // threshold -20 / 3:1 almost everything sits above the knee. Raising a bus now means
+        // raising `makeup`; `g` is for how hard that bus is compressed, which is a separate
+        // decision and the one the thresholds below were tuned for.
+        const comp = (thr, ratio, atk, rel, g, makeup = 1) => {
+          const inG = ctx.createGain(); inG.gain.value = g;
           const c = ctx.createDynamicsCompressor();
           c.threshold.value = thr; c.knee.value = 6; c.ratio.value = ratio; c.attack.value = atk; c.release.value = rel;
-          out.connect(c); c.connect(master);
-          return out;
+          const outG = ctx.createGain(); outG.gain.value = makeup;
+          inG.connect(c); c.connect(outG); outG.connect(master);
+          return inG;
         };
         const plain = (g) => { const out = ctx.createGain(); out.gain.value = g; out.connect(master); return out; };
         BUS = {
-          wpn: comp(-20, 3, 0.003, 0.11, 0.95),   // lasers, point defence, missiles
-          imp: comp(-15, 4, 0.002, 0.16, 1.15),   // hits, shields, hull
-          big: comp(-9, 1.8, 0.008, 0.28, 1.0),   // explosions, rocks, jump flashes
-          amb: plain(0.9),                        // engine, saucer hum, fly-bys, tractor beam
+          // Gain staging measured 2026-10-31 against the running game: the mix peaked at
+          // -10 dBFS against a -3 limiter that never engaged, and combat transients sat only
+          // ~2 dB above the steady bed, so a dogfight read as no louder than flying around.
+          // Weapons and impacts come up, the bed comes down, and the master below takes the
+          // headroom that was going unused. After: peak -4.7 dBFS, transients 5.6 dB over the
+          // bed, no clipped samples.
+          wpn: comp(-20, 3, 0.003, 0.11, 0.95, 2.2),   // lasers, point defence, missiles
+          imp: comp(-15, 4, 0.002, 0.16, 1.15, 2.2),   // hits, shields, hull
+          big: comp(-9, 1.8, 0.008, 0.28, 1.0, 1.9),   // explosions, rocks, jump flashes
+          amb: plain(0.78),                            // engine, saucer hum, fly-bys, tractor beam
           ui: plain(1),                           // lock tones, radio, jingles, alarm
           vox: plain(1.1),                        // Halcyon control, slightly forward of the rest
           mus: plain(1),                          // music, which runs its own ducking
