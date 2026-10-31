@@ -561,6 +561,12 @@ finished binary. `tools/README.md` has the detail.
 
 ## Deployment
 
+Deploying is a **copy**, not a checkout: `/var/www/sortie/` holds the client and
+`/home/ubuntu/sortie-api/server.js` the service, both separate from this repo.
+Restarting `sortie-api` does not pick up changes to `server/server.js` until the
+file is copied across. `docs/workflow.md` has the rest of the deploy guardrails,
+along with how work on this project is divided between models.
+
 It is static files; any web server will do. On the VPS it is an additive nginx
 `location` block, so it shares the default server without affecting anything else:
 
