@@ -1,0 +1,8 @@
+# Generated geometry data: 33k lines, one node, no edges worth having.
+assets/ship-models.js
+# Audio manifests: 233 nodes of pure key names that swamp the god-node ranking.
+assets/vox/manifest.json
+assets/sfx/manifest.json
+# The HTML originals; tools/graphify-prep.py indexes their JS via .graphify/ with
+# line numbers aligned, and graphify would otherwise send the markup to an LLM.
+*.html

@@ -15,3 +15,8 @@ tools/build/
 # Python bytecode (the renderers import each other, which generates these)
 __pycache__/
 *.py[cod]
+
+# graphify: the built graph. The derived JS view of our HTML lives outside the
+# repo entirely (~/.cache/sortie-graphify), because graphify honors .gitignore and
+# would skip the very files it needs to parse. See CLAUDE.md.
+graphify-out/
