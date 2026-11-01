@@ -12,6 +12,7 @@ Textures are a separate step: they are converted once by hand to 1024px JPEGs in
 assets/ (see README), because the choice of colour variant per ship is a design call.
 """
 import argparse
+import hashlib
 import os
 import re
 
@@ -44,10 +45,23 @@ def body(path):
     return '\n'.join(out)
 
 
+def stamp(path, pattern, tag):
+    """Rewrite the ?v= on the bundle's URL so a changed bundle can never be served from a cache
+    under the old one. This is not hygiene, it is a bug fix: the page is network-first and the
+    bundle is cache-first, so shipping eleven ships under the five-ship URL handed returning
+    players a new index.html with the old models. Every ship fell back to primitives."""
+    s = open(path).read()
+    out, n = re.subn(pattern, lambda m: m.group(1) + tag, s)
+    if n != 1:
+        raise SystemExit(f'{path}: expected one ?v= stamp to rewrite, found {n}')
+    open(path, 'w').write(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--pack', default=PACK)
-    ap.add_argument('--out', default=os.path.join(os.path.dirname(__file__), '..', 'assets', 'ship-models.js'))
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    ap.add_argument('--out', default=os.path.join(root, 'assets', 'ship-models.js'))
     a = ap.parse_args()
     parts = [HEAD]
     for name in SHIPS:
@@ -59,7 +73,10 @@ def main():
     text = ''.join(parts)
     with open(a.out, 'w') as f:
         f.write(text)
-    print(f'{len(SHIPS)} ships, {len(text) // 1024} KB')
+    tag = hashlib.md5(text.encode()).hexdigest()[:8]
+    stamp(os.path.join(root, 'index.html'), r'(assets/ship-models\.js\?v=)[0-9a-f]+', tag)
+    stamp(os.path.join(root, 'sw.js'), r"(\./assets/ship-models\.js\?v=)[0-9a-f]+", tag)
+    print(f'{len(SHIPS)} ships, {len(text) // 1024} KB, v={tag}')
 
 
 if __name__ == '__main__':

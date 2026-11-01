@@ -421,7 +421,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   </section>
 </div>
 
-<script src="assets/ship-models.js"></script>
+<script src="assets/ship-models.js?v=bba25dc9"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -2196,14 +2196,23 @@ async function loadAssets() {
     const objs = window.__SHIP_OBJ;
     if (!objs) throw new Error('assets/ship-models.js did not load');
     const loader = new OBJLoader();
-    const keys = Object.keys(SHIP_SRC);
-    const maps = await Promise.all(keys.map((k) => tex(ASSET_URLS[`ship${SHIP_SRC[k]}`], true)));
+    // Per ship, not all or nothing. A bundle that is missing a model -- an old one served from a
+    // cache, a half-written deploy -- used to throw on the first missing key and drop EVERY ship
+    // to the built-in primitives, including the ones that were right there in the file.
+    const keys = Object.keys(SHIP_SRC).filter((k) => objs[SHIP_SRC[k]]);
+    const missing = Object.keys(SHIP_SRC).filter((k) => !objs[SHIP_SRC[k]]);
+    if (missing.length) console.warn('Ship models missing from the bundle:', missing.join(', '));
+    // A ship with no texture is a white ship, which still beats a box of primitives.
+    const maps = await Promise.all(keys.map((k) => tex(ASSET_URLS[`ship${SHIP_SRC[k]}`], true).catch(() => null)));
     keys.forEach((k, i) => {
-      const root = loader.parse(objs[SHIP_SRC[k]]);
-      const mat = new THREE.MeshStandardMaterial({ map: maps[i], metalness: 0.45, roughness: 0.42 });
-      root.traverse((o) => { if (o.isMesh) o.material = mat; });
-      MODELS[k] = prepModel(root, SHIP_LENGTH[k], SHIP_NOSE[k]);
+      try {
+        const root = loader.parse(objs[SHIP_SRC[k]]);
+        const mat = new THREE.MeshStandardMaterial({ map: maps[i], metalness: 0.45, roughness: 0.42 });
+        root.traverse((o) => { if (o.isMesh) o.material = mat; });
+        MODELS[k] = prepModel(root, SHIP_LENGTH[k], SHIP_NOSE[k]);
+      } catch (err) { console.warn(`Ship model ${SHIP_SRC[k]} did not parse; ${k} keeps its built-in ship.`, err); }
     });
+    if (!MODELS.striker) throw new Error('no usable ship models');
     usePlayerModel();
     useModelCarrier();
     if (state === 'title') { clearWorld(); setupTitle(); }
