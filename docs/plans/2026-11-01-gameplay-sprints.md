@@ -119,15 +119,41 @@ Data-gated: do not start until the funnel has real visits in it.
    readable, fixable mismatch. If the real hit rate is healthy, **this sprint ends here** and the
    gun needs nothing.
 
-## Sprint 3 — the road to the first boss
+## Sprint 3 — the road to the first boss ✅ done 2026-11-01
 
-Data-gated on Sprint 2's stopping-wave histogram.
+Gate cleared by three clean runs, all on normal, ending at waves 3, 4 and 4 in 5-7 minutes.
+No run in the record has ever reached a boss.
 
-Every boss sits at wave 5 or later. If the histogram confirms runs ending at waves 2–4, several
-sprints of built-and-paid-for content is unreachable: the hive ship, the hold-out, the ace, the
-capital escort, the rescued-pilot-to-spare-life loop. Options, cheapest first: compress waves
-1–4, move a boss to wave 3, or shorten early waves' spawn queues. This is the best
-content-per-hour in the project because the content already exists.
+Counted out, the old ramp asked for **45 ships across waves 1-4**, and stepped 4 → 12 between
+the first two waves while introducing lancers *and* the tractor-beam Warden at the same moment.
+One wave of four drones, then that.
+
+| wave | 1 | 2 | 3 | 4 | → boss |
+|---|---|---|---|---|---|
+| was | 4 | 12 | 12 | 17 | **45 ships** |
+| now | 4 | 6 | 8 | 10 | **28 ships** |
+
+Lancers now arrive on wave 2 and the Warden on wave 3, so the two introductions are no longer
+simultaneous. The curve converges back on the old counts by wave 11 — only the opening is
+shorter, the late game is untouched. Because hull and shields are restored at each wave start,
+fewer ships per wave also means less incoming fire *and* more frequent top-ups, so this buys
+survivability as well as pace. Drone flights are also split evenly rather than fours-then-
+remainder, which on the smaller counts was sending a single straggler in alone.
+
+Boss cadence is unchanged at every fifth wave: `BOSS_EVERY` feeds `bossTier()` and `bossKind()`,
+and moving the first boss alone would have meant special-casing both.
+
+**Verified live** by injecting a wave-4 save and reading the new SECTOR line: `0 ENGAGED · 10
+INBOUND`, against 17 before.
+
+**Not yet known:** whether reaching the boss is now survivable. This shortens the road; it does
+not make the player tougher. If the next runs die at wave 4 with the boss in sight, the limit is
+survivability rather than pace, and that is a different fix.
+
+**Scoring note.** Fewer ships per wave means fewer points per wave, so scores on this build are
+not directly comparable with the five rows already on the board. With three of those five being
+test runs, clearing the board is the cheap option; a `build` column on `scores` is the durable
+one.
 
 ## Sprint 4 — power routing
 

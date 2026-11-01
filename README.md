@@ -55,6 +55,16 @@ were the more frequent interruption. The rocks did not have to go to fix that; t
 stop being a *stage*. A field now drifts through every wave as cover, as a collision hazard, and
 as a small bonus objective, and it is cleared and reseeded each wave so it never accumulates.
 
+**The opening was too long to reach any of them.** Three clean playtests on normal all ended at
+wave 3 or 4, which meant no run had ever seen a boss: the hive ship, the hold-out, the ace and
+the capital escort were built, shipped and unreachable. Counted out, the old ramp asked for 45
+ships across waves 1-4 and went from 4 to 12 between the first two waves, introducing lancers
+*and* the tractor-beam Warden in the same breath. It now climbs 4 → 6 → 8 → 10, which is 28
+ships to the boss instead of 45, with lancers arriving on wave 2 and the Warden on wave 3. The
+curve converges back on the old counts by wave 11, so only the opening is shorter. Fewer ships
+also means less incoming fire and more frequent top-ups — hull and shields are restored at the
+start of every wave — so the change buys survivability as well as pace.
+
 A boss wave is one of three things, taken in turn, so each comes round every fifteen waves and
 none repeats back to back:
 
