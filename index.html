@@ -3634,6 +3634,43 @@ async function postGlobal(name, sc, wv, level) {
   } catch (err) { return { ok: false, why: 'offline' }; }
 }
 
+// ---------------------------------------------------------------- the visit ping
+// A row in the score table exists only for a run someone chose to submit, so the board could
+// never answer the questions that actually decide what to build next: how many people opened
+// the game, on what, and where they stopped. Three submitted rows -- all from one desktop --
+// were being used to argue about mobile. This reports the visit itself.
+//
+// It is one-way and never awaited. Nothing in the game may wait on it and a blocked, failed or
+// rate-limited ping must be completely invisible, so every call site fires and forgets.
+const VID_KEY = 'sortie.vid';
+const newId = () => (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 12);
+const SID = newId();    // this visit
+// The visitor, across visits. A private window or blocked storage leaves this empty, which
+// costs us "how many people" but not "how many sessions" -- the visit is still counted.
+const VID = (() => {
+  try {
+    let v = localStorage.getItem(VID_KEY);
+    if (!/^[a-z0-9]{10,32}$/.test(v || '')) { v = newId(); localStorage.setItem(VID_KEY, v); }
+    return v;
+  } catch { return ''; }
+})();
+function ping(phase, extra = {}) {
+  try {
+    const body = JSON.stringify({
+      sid: SID, vid: VID, phase,
+      wave, cleared: Math.max(0, wave - 1), seconds: Math.round(runT),
+      shots, hits, kills, level: LEVEL.id,
+      touch: isTouch ? 1 : 0, vw: innerWidth | 0, vh: innerHeight | 0,
+      installed: (matchMedia('(display-mode: standalone)').matches || navigator.standalone) ? 1 : 0,
+      ...extra,
+    });
+    // keepalive, so the end-of-run ping still goes out when the page is being closed on top of it.
+    fetch(`${API}/ping`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
+    }).catch(() => { /* offline, blocked, or the service is down: not the game's problem */ });
+  } catch { /* reporting never breaks the game */ }
+}
+
 function loadBoard() {
   const b = readJSON(BOARD_KEY);
   if (!Array.isArray(b)) return [];
@@ -5147,6 +5184,7 @@ function startWave(n) {
 function waveComplete() {
   waveActive = false;
   holdout = null;
+  ping('wave');
   nextWaveT = 9;                 // a beat longer than before: there is a summary to read now
   updateObjectives();
   // `fast` can only be judged now, at the moment the sector actually goes quiet.
@@ -5246,6 +5284,7 @@ function startGame() {
   waveActive = false;
   setAutoFire(false);
   nextWaveT = 3;
+  ping('start');
   overT = -1;
   $('title').hidden = true; $('over').hidden = true; $('pause').hidden = true;
   cockpit.visible = true;
@@ -5282,6 +5321,7 @@ function continueGame(r) {
   wave = r.wave - 1;             // updateFlow starts wave + 1 when the countdown runs out
   nextWaveT = 3;
   overT = -1;
+  ping('start');                 // a resumed run is a started run; wave_max picks up where it left off
   $('title').hidden = true; $('over').hidden = true; $('pause').hidden = true;
   cockpit.visible = true;
   showBanner(`RESUMING WAVE ${r.wave}`, 'Gold Leader clear of the Halcyon', 2.6);
@@ -5415,6 +5455,7 @@ function confirmEntry() {
   $('dBoardPanel').hidden = renderBoard($('dBoard'), mine, null, { window: true }) === 0;
   $('dBoardWhich').textContent = 'This browser · sending…';
   sfx.rescued();
+  ping('end', { ended: 'dead', submitted: 1 });
   postGlobal(name, sc, wv, LEVEL.id).then((out) => {
     if (out.ok && globalBoard) {
       const at = globalBoard.findIndex((e) => e.name === name && e.score === sc);
@@ -5431,6 +5472,7 @@ function confirmEntry() {
 function gameOver() {
   state = 'over';
   cockpit.visible = false;
+  ping('end', { ended: 'dead', deaths: 1 });
   // The run is finished, so the checkpoint has nothing left to continue.
   dropKey(SAVE_KEY);
   saveHi();
@@ -5489,6 +5531,7 @@ function refreshPauseNote() {
 // there is deliberately nothing to write here beyond the first-wave case where none exists yet:
 // banking this wave's score while still replaying the wave would pay twice for the same kills.
 function saveAndQuit() {
+  ping('end', { ended: 'saved' });
   if (!loadRun()) saveRun();
   toTitle();
   const r = loadRun();
@@ -6816,6 +6859,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 refreshTitle();
 routeHash();   // a link straight to #controls or #about opens there
+ping('load');  // the denominator: this fires whether or not anyone presses Launch
 frame();
 </script>
 

@@ -56,6 +56,45 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS scores_rank ON scores (score DESC, id ASC);
   CREATE TABLE IF NOT EXISTS geo_cache (ip TEXT PRIMARY KEY, country TEXT, region TEXT, city TEXT, lat REAL, lon REAL, cc TEXT, at INTEGER);
 `);
+
+// ---------------------------------------------------------------- sessions
+// The denominator the score table never had. A row in `scores` exists only for a run someone
+// chose to submit, which tells us what the people who finished and cared did -- and nothing
+// about how many opened the game, on what, or where they stopped. Platform and difficulty
+// questions were being argued from three submitted rows, all from one machine, so this records
+// the visit itself: one row per page load, updated as the run progresses.
+//
+// `vid` is kept by the client across visits and `sid` is new on every load, so "how many
+// people" and "how many sessions" are different questions with different answers. Monotonic
+// fields are merged with max() on update, because pings can arrive late or out of order and a
+// stale one must not walk a run backwards.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    sid TEXT PRIMARY KEY,
+    vid TEXT,
+    created_at TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    started INTEGER NOT NULL DEFAULT 0,
+    runs INTEGER NOT NULL DEFAULT 0,
+    wave_max INTEGER NOT NULL DEFAULT 0,
+    waves_cleared INTEGER NOT NULL DEFAULT 0,
+    seconds REAL NOT NULL DEFAULT 0,
+    shots INTEGER NOT NULL DEFAULT 0,
+    hits INTEGER NOT NULL DEFAULT 0,
+    kills INTEGER NOT NULL DEFAULT 0,
+    deaths INTEGER NOT NULL DEFAULT 0,
+    level TEXT,
+    ended TEXT,
+    submitted INTEGER NOT NULL DEFAULT 0,
+    installed INTEGER NOT NULL DEFAULT 0,
+    touch INTEGER NOT NULL DEFAULT 0,
+    vw INTEGER, vh INTEGER,
+    ip TEXT, country TEXT, region TEXT, city TEXT, cc TEXT,
+    ua TEXT, os TEXT, browser TEXT, device TEXT
+  );
+  CREATE INDEX IF NOT EXISTS sessions_seen ON sessions (seen_at DESC);
+  CREATE INDEX IF NOT EXISTS sessions_vid ON sessions (vid);
+`);
 // Columns added after the first rows were already stored. SQLite has no "add column if missing",
 // so the attempt is made and the duplicate-column error is the expected outcome on every boot
 // after the first.
@@ -74,6 +113,32 @@ const topQ = db.prepare(`SELECT name, score, wave, level, created_at, country FR
 const rankQ = db.prepare('SELECT COUNT(*) AS n FROM scores WHERE score > ?');
 const geoGet = db.prepare('SELECT country, region, city, lat, lon, cc, at FROM geo_cache WHERE ip = ?');
 const geoPut = db.prepare('INSERT OR REPLACE INTO geo_cache (ip, country, region, city, lat, lon, cc, at) VALUES (?,?,?,?,?,?,?,?)');
+
+// One statement for both the first ping of a visit and every one after it. The insert carries
+// the things decided once (identity, platform, where from); the update carries only progress,
+// and takes the larger of the two for anything that can only go up.
+const pingPut = db.prepare(`INSERT INTO sessions
+  (sid, vid, created_at, seen_at, started, runs, wave_max, waves_cleared, seconds, shots, hits,
+   kills, deaths, level, ended, submitted, installed, touch, vw, vh,
+   ip, country, region, city, cc, ua, os, browser, device)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  ON CONFLICT(sid) DO UPDATE SET
+    seen_at       = excluded.seen_at,
+    started       = MAX(sessions.started, excluded.started),
+    runs          = MAX(sessions.runs, excluded.runs),
+    wave_max      = MAX(sessions.wave_max, excluded.wave_max),
+    waves_cleared = MAX(sessions.waves_cleared, excluded.waves_cleared),
+    seconds       = MAX(sessions.seconds, excluded.seconds),
+    shots         = MAX(sessions.shots, excluded.shots),
+    hits          = MAX(sessions.hits, excluded.hits),
+    kills         = MAX(sessions.kills, excluded.kills),
+    deaths        = MAX(sessions.deaths, excluded.deaths),
+    level         = COALESCE(excluded.level, sessions.level),
+    ended         = COALESCE(excluded.ended, sessions.ended),
+    submitted     = MAX(sessions.submitted, excluded.submitted),
+    installed     = MAX(sessions.installed, excluded.installed),
+    vw            = COALESCE(excluded.vw, sessions.vw),
+    vh            = COALESCE(excluded.vh, sessions.vh)`);
 
 // ---------------------------------------------------------------- what a client may claim
 const NAME_OK = /^[A-Z0-9.\-]{3}$/;
@@ -337,6 +402,44 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, publicStats());
   }
 
+  // A visit, and how far it got. Unlike a score this is not a claim worth faking -- there is no
+  // ranking to climb -- so it is validated for shape and range and otherwise taken at face
+  // value. It answers with 204 and no body: the client must never wait on, or care about, this.
+  if (url.pathname === '/api/ping' && req.method === 'POST') {
+    if (!allow('p:' + ip, 240, 3600_000)) { res.writeHead(429); res.end(); return; }
+    let body;
+    try { body = JSON.parse(await readBody(req, 1024)); } catch { res.writeHead(400); res.end(); return; }
+    const ID = /^[a-z0-9]{10,32}$/;
+    const sid = String(body.sid || '');
+    const vid = String(body.vid || '');
+    if (!ID.test(sid)) { res.writeHead(400); res.end(); return; }
+    const first = body.phase === 'load';
+    // Geolocation is looked up once per visit. `geolocate` caches by IP, so this is usually a
+    // map hit, but on a cold IP it is an outbound request and there is no reason to make one on
+    // every wave ping.
+    const geo = first ? await geolocate(ip) : {};
+    const d = describe(req.headers['user-agent']);
+    const now = new Date().toISOString();
+    pingPut.run(
+      sid, ID.test(vid) ? vid : null, now, now,
+      body.phase === 'load' ? 0 : 1,
+      int(body.runs, 0, 1000),
+      int(body.wave, 0, WAVE_MAX),
+      int(body.cleared, 0, WAVE_MAX),
+      Math.min(86400, Math.max(0, Number(body.seconds) || 0)),
+      int(body.shots, 0, 1e7), int(body.hits, 0, 1e7),
+      int(body.kills, 0, 1e6), int(body.deaths, 0, 1000),
+      ['recruit', 'normal', 'veteran', 'ace'].includes(body.level) ? body.level : null,
+      ['dead', 'quit', 'saved'].includes(body.ended) ? body.ended : null,
+      body.submitted ? 1 : 0, body.installed ? 1 : 0, body.touch ? 1 : 0,
+      int(body.vw, 0, 20000) || null, int(body.vh, 0, 20000) || null,
+      ip || null, geo.country || null, geo.region || null, geo.city || null, geo.cc || null,
+      d.ua, d.os, d.browser, d.device,
+    );
+    res.writeHead(204); res.end();
+    return;
+  }
+
   // --- administration -------------------------------------------------------------------
   if (url.pathname === '/api/admin/login' && req.method === 'POST') {
     // Deliberately mean: a six-digit tail on a first name is not much entropy, so the thing
@@ -364,6 +467,64 @@ const server = http.createServer(async (req, res) => {
           FROM scores WHERE city IS NOT NULL GROUP BY country, region, city ORDER BY n DESC`).all(),
         flagged: db.prepare('SELECT COUNT(*) AS n FROM scores WHERE flags IS NOT NULL').get().n,
       });
+    }
+    // The funnel, which is the whole reason the sessions table exists: of everyone who opened
+    // the game, how many pressed Launch, how far they got, and on what. Grouped server-side
+    // because the interesting cuts are aggregates and the row dump is already available below.
+    if (url.pathname === '/api/admin/funnel') {
+      const one = (sql) => db.prepare(sql).get();
+      const all = (sql) => db.prepare(sql).all();
+      return send(res, 200, {
+        totals: one(`SELECT
+          COUNT(*) AS visits,
+          COUNT(DISTINCT vid) AS visitors,
+          SUM(started) AS started,
+          SUM(submitted) AS submitted,
+          SUM(installed) AS installed,
+          SUM(CASE WHEN wave_max >= 5 THEN 1 ELSE 0 END) AS reached_boss,
+          SUM(shots) AS shots, SUM(hits) AS hits, SUM(kills) AS kills,
+          ROUND(AVG(CASE WHEN started = 1 THEN seconds END), 1) AS avg_seconds,
+          ROUND(AVG(CASE WHEN started = 1 THEN wave_max END), 2) AS avg_wave
+          FROM sessions`),
+        byDevice: all(`SELECT device, COUNT(*) AS visits, SUM(started) AS started,
+          ROUND(AVG(CASE WHEN started = 1 THEN wave_max END), 2) AS avg_wave,
+          ROUND(AVG(CASE WHEN started = 1 THEN seconds END), 1) AS avg_seconds
+          FROM sessions GROUP BY device ORDER BY visits DESC`),
+        byOs: all(`SELECT os, COUNT(*) AS visits, SUM(started) AS started
+          FROM sessions GROUP BY os ORDER BY visits DESC`),
+        byBrowser: all(`SELECT browser, COUNT(*) AS visits, SUM(started) AS started
+          FROM sessions GROUP BY browser ORDER BY visits DESC`),
+        byCountry: all(`SELECT country, cc, COUNT(*) AS visits, SUM(started) AS started
+          FROM sessions WHERE country IS NOT NULL GROUP BY country, cc ORDER BY visits DESC`),
+        // Where runs stop. The reason the design cares: every boss sits at wave 5 and up.
+        byWave: all(`SELECT wave_max AS wave, COUNT(*) AS runs FROM sessions
+          WHERE started = 1 GROUP BY wave_max ORDER BY wave_max`),
+        byEnding: all(`SELECT COALESCE(ended, 'abandoned') AS ending, COUNT(*) AS runs
+          FROM sessions WHERE started = 1 GROUP BY ending ORDER BY runs DESC`),
+        byLevel: all(`SELECT COALESCE(level, 'unset') AS level, COUNT(*) AS runs,
+          ROUND(AVG(wave_max), 2) AS avg_wave FROM sessions WHERE started = 1
+          GROUP BY level ORDER BY runs DESC`),
+        recent: all(`SELECT sid, vid, created_at, seen_at, started, wave_max, waves_cleared,
+          seconds, shots, hits, kills, deaths, level, ended, submitted, installed, touch, vw, vh,
+          country, city, os, browser, device FROM sessions ORDER BY seen_at DESC LIMIT 300`),
+      });
+    }
+    if (url.pathname === '/api/admin/sessions.csv') {
+      const cols = ['sid', 'vid', 'created_at', 'seen_at', 'started', 'runs', 'wave_max',
+        'waves_cleared', 'seconds', 'shots', 'hits', 'kills', 'deaths', 'level', 'ended',
+        'submitted', 'installed', 'touch', 'vw', 'vh', 'ip', 'country', 'region', 'city', 'cc',
+        'os', 'browser', 'device', 'ua'];
+      const data = db.prepare(`SELECT ${cols.join(', ')} FROM sessions ORDER BY seen_at DESC`).all();
+      const cell = (v) => {
+        if (v === null || v === undefined) return '';
+        const t = String(v);
+        return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+      };
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="sortie-sessions-${new Date().toISOString().slice(0, 10)}.csv"`,
+      });
+      return res.end([cols.join(','), ...data.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n'));
     }
     if (url.pathname === '/api/admin/export.json') {
       const rows = adminRows(1e6, 0);

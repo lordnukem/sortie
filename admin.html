@@ -43,6 +43,30 @@
 
     <div id="tiles" class="tiles" style="margin-bottom:20px"></div>
 
+    <!-- The funnel. Everything in the "runs" figures above counts only runs that were
+         *submitted*, which is a self-selecting sample: it cannot say how many people opened
+         the game and left. These come from the sessions table, one row per page load. -->
+    <section class="panel" style="margin-bottom:20px">
+      <h2>Visits <span class="sub" style="text-transform:none; letter-spacing:0">— every page load, not only submitted runs</span></h2>
+      <p class="sub" id="funnelMsg" style="margin:0 0 14px"></p>
+      <div id="funnelTiles" class="tiles"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn ghost" id="scsv" type="button">Download sessions CSV</button>
+      </div>
+    </section>
+
+    <div class="grid cols-3" style="margin-bottom:20px">
+      <section class="panel"><h2>Where runs stop</h2><div id="fWave"></div></section>
+      <section class="panel"><h2>How runs end</h2><div id="fEnding"></div></section>
+      <section class="panel"><h2>Difficulty chosen</h2><div id="fLevel"></div></section>
+    </div>
+
+    <div class="grid cols-3" style="margin-bottom:20px">
+      <section class="panel"><h2>Device — visits</h2><div id="fDevice"></div></section>
+      <section class="panel"><h2>Operating system — visits</h2><div id="fOs"></div></section>
+      <section class="panel"><h2>Browser — visits</h2><div id="fBrowser"></div></section>
+    </div>
+
     <section class="panel" style="margin-bottom:20px">
       <h2>Where runs came from — city level</h2>
       <div id="map"></div>
@@ -136,18 +160,18 @@
   $('refresh').addEventListener('click', () => load());
   $('out').addEventListener('click', () => signOut());
   $('filter').addEventListener('input', () => drawRows());
-  for (const [id, ext] of [['csv', 'csv'], ['json', 'json']]) {
+  for (const [id, ext] of [['csv', 'csv'], ['json', 'json'], ['scsv', 'sessions.csv']]) {
     $(id).addEventListener('click', async () => {
       const btn = $(id);
       btn.disabled = true;
       try {
         // Fetched rather than linked: the download needs the Authorization header, which a
         // plain <a href> cannot carry.
-        const res = await api('/admin/export.' + ext);
+        const res = await api(ext === 'sessions.csv' ? '/admin/sessions.csv' : '/admin/export.' + ext);
         const url = URL.createObjectURL(await res.blob());
         const a = document.createElement('a');
         a.href = url;
-        a.download = `sortie-${new Date().toISOString().slice(0, 10)}.${ext}`;
+        a.download = `sortie-${ext === 'sessions.csv' ? 'sessions-' : ''}${new Date().toISOString().slice(0, 10)}.${ext === 'sessions.csv' ? 'csv' : ext}`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -183,6 +207,37 @@
     drawBars($('daily'), (s.daily || []).slice().reverse(), { key: 'day' });
     $('rawHead').innerHTML = '<tr>' + (data.columns || []).map((c) => `<th>${esc(c)}</th>`).join('') + '</tr>';
     drawRows();
+    loadFunnel();
+  }
+
+  // Fetched separately so a failure here cannot take the rest of the page with it: the sessions
+  // table is newer than the score table and may be empty, which is itself worth seeing.
+  async function loadFunnel() {
+    let f;
+    try { f = await (await api('/admin/funnel')).json(); } catch { return; }
+    const t = f.totals || {};
+    const pct = (n, of) => (of ? Math.round((n / of) * 100) + '%' : '—');
+    $('funnelMsg').textContent = t.visits
+      ? `${num(t.visits)} visit${t.visits === 1 ? '' : 's'} from ${num(t.visitors)} browser${t.visitors === 1 ? '' : 's'} · ${pct(t.started, t.visits)} pressed Launch · ${pct(t.submitted, t.started)} of those submitted a score`
+      : 'No visits recorded yet. This fills from the next page load onwards.';
+    tiles($('funnelTiles'), [
+      ['Visits', num(t.visits)],
+      ['Browsers', num(t.visitors)],
+      ['Launched a run', `${num(t.started)} · ${pct(t.started, t.visits)}`],
+      ['Reached a boss', `${num(t.reached_boss)} · ${pct(t.reached_boss, t.started)}`],
+      ['Submitted a score', `${num(t.submitted)} · ${pct(t.submitted, t.started)}`],
+      ['Installed', num(t.installed)],
+      ['Average run', dur(t.avg_seconds), true],
+      ['Average wave', (Number(t.avg_wave) || 0).toFixed(1)],
+      // The figure that started all this. Across every run, not only submitted ones.
+      ['Hit rate', t.shots ? ((t.hits / t.shots) * 100).toFixed(1) + '%' : '—'],
+    ]);
+    drawBars($('fWave'), (f.byWave || []).map((r) => ({ k: 'wave ' + r.wave, n: r.runs })), { empty: 'no runs yet' });
+    drawBars($('fEnding'), (f.byEnding || []).map((r) => ({ k: r.ending, n: r.runs })), { empty: 'no runs yet' });
+    drawBars($('fLevel'), (f.byLevel || []).map((r) => ({ k: `${r.level} · avg wave ${r.avg_wave ?? 0}`, n: r.runs })), { empty: 'no runs yet' });
+    drawBars($('fDevice'), (f.byDevice || []).map((r) => ({ k: r.device || 'unknown', n: r.visits })), { empty: 'no visits yet' });
+    drawBars($('fOs'), (f.byOs || []).map((r) => ({ k: r.os || 'unknown', n: r.visits })), { empty: 'no visits yet' });
+    drawBars($('fBrowser'), (f.byBrowser || []).map((r) => ({ k: r.browser || 'unknown', n: r.visits })), { empty: 'no visits yet' });
   }
 
   function drawRows() {

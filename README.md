@@ -304,7 +304,34 @@ over it. That animation is timed off `performance.now()` rather than the frame `
 capped at 50 ms so the simulation cannot tunnel — using the capped value would make the board
 crawl on a slow renderer instead of merely stutter.
 
-The board is per-browser; there is no server behind it and no score leaves the machine.
+This browser's own board is per-browser and never leaves the machine; the global one above is
+the copy that goes to the server.
+
+## What the server is told
+
+Two separate things go to the service, and they answer different questions.
+
+**A score** is posted only when a finished run is given a name. That is a self-selecting sample:
+it says what the people who finished *and cared* did, and nothing about anyone else. Three
+submitted rows — one player, one machine — were at one point the entire basis for an argument
+about which platform to build for.
+
+**A visit ping** is the denominator. `POST /api/ping` fires on page load, on launch, on each
+wave cleared and at the end of a run, carrying the run's own numbers plus device class, viewport
+and whether the game is running installed. It is one-way and never awaited: nothing in the game
+waits on it, and a blocked, failed or rate-limited ping is invisible. `sid` is new on every page
+load and `vid` is kept by the browser across visits, so "how many sessions" and "how many
+people" stay different questions. Monotonic fields merge with `MAX()` on the server, because
+pings can arrive late or out of order and a stale one must not walk a run backwards.
+
+The operations page turns this into a funnel: of everyone who opened the game, how many pressed
+Launch, how far they got, how many reached a boss, and on what hardware — plus hit rate across
+*all* runs rather than only submitted ones.
+
+It also means IP and coarse geolocation are recorded for every page load, not only for people
+who submit a score. That is a wider collection than the board alone needed, and a deliberate
+one; it sits behind the admin gate, and `docs/plans/2026-11-01-gameplay-sprints.md` has the
+reasoning along with what the data is meant to decide.
 
 ## Screens
 
