@@ -10,7 +10,7 @@
 const http = require('node:http');
 const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
-
+const { initMultiplayer } = require('./multiplayer.js');
 const PORT = Number(process.env.PORT || 8791);
 const HOST = process.env.HOST || '127.0.0.1';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'scores.db');
@@ -357,7 +357,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
 
-  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n });
+  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n, pilots: sector ? sector.players.size : 0 });
 
   if (url.pathname === '/api/scores' && req.method === 'GET') {
     if (!allow('r:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
@@ -546,4 +546,5 @@ const server = http.createServer(async (req, res) => {
 
   send(res, 404, { error: 'no such endpoint' });
 });
+const sector = initMultiplayer(server);
 server.listen(PORT, HOST, () => console.log(`sortie-api on http://${HOST}:${PORT} db=${DB_PATH}`));
