@@ -81,6 +81,15 @@ cheaper than it was in the sprint that prompted this document.
 - **`sudo` for `/var/www`, and never suppress stderr on the copy.** A deploy that
   hid its permission errors looked like it had succeeded and had done nothing.
 - **Bump `CACHE` in `sw.js`** on any client change, or installed copies stay stale.
+- **A changed asset needs a changed URL.** Bumping `CACHE` is not enough on its own:
+  the page is network-first and assets are cache-first, so a fresh `index.html`
+  can be handed a stale asset from the generation before. Eleven ships shipped
+  under the five-ship bundle's URL, `objs['Executioner']` was undefined, and
+  every ship in the game fell back to primitives for anyone who had played
+  before. `tools/build-ships.py` now stamps the bundle's `?v=` with a hash of its
+  own contents, in both `index.html` and `sw.js`. nginx was also silent on
+  `Cache-Control` for this vhost, so browsers invented their own freshness;
+  HTML now revalidates and `/assets/` caches for a week.
 - **Pages serves `main`.** Work on a feature branch does not ship; the carrier art
   sat unmerged and unshipped for four days.
 - **No delegate commits.** agy's three carrier commits used one-line messages

@@ -234,6 +234,11 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <div class="difflever" id="diffLever"></div>
       <p class="sub" id="diffNote"></p>
     </div>
+    <div class="panel" id="shipPanel">
+      <h2>Fighter</h2>
+      <div class="difflever" id="shipLever"></div>
+      <p class="sub" id="shipNote"></p>
+    </div>
     <div class="actions">
       <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
@@ -416,7 +421,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   </section>
 </div>
 
-<script src="assets/ship-models.js"></script>
+<script src="assets/ship-models.js?v=bba25dc9"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -451,11 +456,46 @@ const MAX_SPEED = 70;
 const BOLT_SPEED = 330;
 const ENEMY_BOLT_SPEED = 200;
 const CARRIER_POS = V(0, -20, 0);
+const VIEW_IDS = ['controls', 'about'];  // the reading views, needed both here and by the router below
 const LAUNCH_POS = V(0, 28, -550);
 
 // ---------------------------------------------------------------- renderer, camera, lights, post-processing
 const glCanvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: 'high-performance' });
+// Building the renderer is the one line in this module that fails on the machine rather than on the
+// network: no WebGL at all, a blocklisted driver, or too many live contexts in one browser. An
+// uncaught throw here aborts the whole module, so setupTitle() never runs and the launch button sits
+// disabled reading "Loading ships..." with nothing to explain it. The asset path is already capped at
+// ten seconds by the settleAssets timeout, so a permanent stall on that button can only come from
+// here. Say what happened, keep the reading views reachable, and then let the throw stand: there is
+// no version of this game without a renderer.
+function noWebGL(err) {
+  console.error('WebGL is unavailable, so Sortie cannot run.', err);
+  glCanvas.hidden = true;
+  $('launchBtn').textContent = 'WebGL unavailable';
+  const hint = $('startHint');
+  hint.className = 'note';
+  hint.innerHTML = 'This browser could not open a 3D context. Turn on hardware acceleration, or try '
+    + 'another browser or device. The <a class="link" href="stats.html">records page</a> works either way.';
+  for (const id of ['continueBtn', 'tBoardPanel', 'diffPanel', 'shipPanel', 'installPanel']) $(id).hidden = true;
+  // A standalone router for the two reading views: the one further down this file is never reached,
+  // and the flight manual is worth reading even on a machine that cannot fly.
+  const show = () => {
+    const want = VIEW_IDS.includes(location.hash.slice(1)) ? location.hash.slice(1) : null;
+    for (const v of VIEW_IDS) $(v).hidden = v !== want;
+    $('title').hidden = !!want;
+  };
+  for (const id of ['controlsBack', 'aboutBack']) $(id).addEventListener('click', () => { location.hash = ''; });
+  window.addEventListener('hashchange', show);
+  show();
+}
+const renderer = (() => {
+  try {
+    return new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: 'high-performance' });
+  } catch (err) {
+    noWebGL(err);
+    throw err;
+  }
+})();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2079,22 +2119,50 @@ function texBox(sx, sy, sz, mat, tile, x = 0, y = 0, z = 0) {
 // ---------------------------------------------------------------- downloaded CC0 assets: Quaternius ships, ambientCG metal and rock textures
 // Ship meshes arrive as OBJ text in window.__SHIP_OBJ (assets/ship-models.js). The offline copy swaps the image paths
 // for embedded data (window.__ASSETS). If anything fails, the built-in ships and generated textures stay.
-const SHIP_SRC = { player: 'Striker', drone: 'Dispatcher', lancer: 'Spitfire', warden: 'Imperial', raider: 'Pancake' };
+// The Halcyon is a fighter model at 152x: 760 metres nose to ring, against a 5-metre fighter.
+const CARRIER_LEN = 760;
+// All eleven airframes in the pack, each under the role it flies. Three are flyable and offered
+// on the title; the Swarm's two fodder classes field two airframes apiece so a wave is not four
+// copies of one silhouette; and the Halcyon herself is the Zenith, blown up to carrier scale.
+const SHIP_SRC = {
+  exec: 'Executioner', striker: 'Striker', chal: 'Challenger',
+  drone: 'Dispatcher', bob: 'Bob', lancer: 'Spitfire', omen: 'Omen',
+  warden: 'Imperial', insurgent: 'Insurgent', raider: 'Pancake', carrier: 'Zenith',
+};
 const ASSET_URLS = Object.assign({
   shipStriker: 'assets/q_striker.jpg', shipDispatcher: 'assets/q_dispatcher.jpg', shipSpitfire: 'assets/q_spitfire.jpg',
   shipImperial: 'assets/q_imperial.jpg', shipPancake: 'assets/q_pancake.jpg',
+  shipExecutioner: 'assets/q_executioner.jpg', shipChallenger: 'assets/q_challenger.jpg', shipBob: 'assets/q_bob.jpg',
+  shipOmen: 'assets/q_omen.jpg', shipInsurgent: 'assets/q_insurgent.jpg', shipZenith: 'assets/q_zenith.jpg',
   metalColor: 'assets/metal_color.jpg', metalNormal: 'assets/metal_normal.jpg', metalRough: 'assets/metal_rough.jpg', metalMetal: 'assets/metal_metal.jpg',
   rockColor: 'assets/rock_color.jpg', rockNormal: 'assets/rock_normal.jpg', rockRough: 'assets/rock_rough.jpg',
   carrierHull: 'assets/carrier_hull.jpg', carrierDeck: 'assets/carrier_deck.jpg',
 }, window.__ASSETS || {});
-const SHIP_LENGTH = { player: 5, drone: 5.6, lancer: 6.4, warden: 14, raider: 8 };
+// Length in metres. The three flyable ships are within a metre of each other on purpose: the
+// hitbox is a sphere off `half`, so a longer hull would be a bigger target for the same job.
+const SHIP_LENGTH = {
+  exec: 5.4, striker: 5, chal: 5.2,
+  drone: 5.6, bob: 5.2, lancer: 6.4, omen: 6.8,
+  warden: 14, insurgent: 14, raider: 8, carrier: CARRIER_LEN,
+};
 // Which way each model's nose points along z; flipped where needed so every ship flies along +z.
-const SHIP_NOSE = { player: 1, drone: 1, lancer: 1, warden: 1, raider: 1 };
+// Every model in this pack already noses +z -- measured, not assumed -- but the hook stays for
+// the next pack that does not.
+const SHIP_NOSE = {
+  exec: 1, striker: 1, chal: 1, drone: 1, bob: 1, lancer: 1, omen: 1,
+  warden: 1, insurgent: 1, raider: 1, carrier: 1,
+};
 // Exhaust nozzles on each model, measured from rear views, as fractions of the model's half-size
 // (x across, y up, z along; tail is z = -1). r is a radius in half-widths, ry a height in half-heights for
 // rectangular bays. Nozzles off the centre line are mirrored to the other side.
 const THRUSTERS = {
-  player: [{ x: 0, y: 0.26, z: -0.98, r: 0.09 }, { x: 0.33, y: -0.06, z: -0.97, r: 0.075 }],
+  striker: [{ x: 0, y: 0.26, z: -0.98, r: 0.09 }, { x: 0.33, y: -0.06, z: -0.97, r: 0.075 }],
+  // Executioner: a pair of outboard nacelle rings plus two nozzles either side of the spine.
+  exec: [{ x: 0.78, y: 0.06, z: -0.97, r: 0.1 }, { x: 0.17, y: -0.04, z: -0.95, r: 0.085 }],
+  chal: [{ x: 0.2, y: -0.05, z: -0.96, r: 0.1 }],
+  bob: [{ x: 0.16, y: -0.05, z: -0.95, r: 0.11 }],
+  omen: [{ x: 0.13, y: -0.08, z: -0.96, r: 0.1 }],
+  insurgent: [{ x: 0.42, y: -0.1, z: -0.97, r: 0.12 }, { x: 0.14, y: -0.08, z: -0.97, r: 0.1 }],
   drone: [{ x: 0, y: 0.21, z: -0.98, r: 0.15 }],
   lancer: [{ x: 0.72, y: 0.39, z: -0.98, r: 0.11 }, { x: 0.72, y: -0.43, z: -0.98, r: 0.11 }],
   warden: [{ x: 0, y: -0.2, z: -0.99, r: 0.28, ry: 0.5 }, { x: 0.77, y: -0.22, z: -0.99, r: 0.13, ry: 0.65 }],
@@ -2163,15 +2231,25 @@ async function loadAssets() {
     const objs = window.__SHIP_OBJ;
     if (!objs) throw new Error('assets/ship-models.js did not load');
     const loader = new OBJLoader();
-    const keys = Object.keys(SHIP_SRC);
-    const maps = await Promise.all(keys.map((k) => tex(ASSET_URLS[`ship${SHIP_SRC[k]}`], true)));
+    // Per ship, not all or nothing. A bundle that is missing a model -- an old one served from a
+    // cache, a half-written deploy -- used to throw on the first missing key and drop EVERY ship
+    // to the built-in primitives, including the ones that were right there in the file.
+    const keys = Object.keys(SHIP_SRC).filter((k) => objs[SHIP_SRC[k]]);
+    const missing = Object.keys(SHIP_SRC).filter((k) => !objs[SHIP_SRC[k]]);
+    if (missing.length) console.warn('Ship models missing from the bundle:', missing.join(', '));
+    // A ship with no texture is a white ship, which still beats a box of primitives.
+    const maps = await Promise.all(keys.map((k) => tex(ASSET_URLS[`ship${SHIP_SRC[k]}`], true).catch(() => null)));
     keys.forEach((k, i) => {
-      const root = loader.parse(objs[SHIP_SRC[k]]);
-      const mat = new THREE.MeshStandardMaterial({ map: maps[i], metalness: 0.45, roughness: 0.42 });
-      root.traverse((o) => { if (o.isMesh) o.material = mat; });
-      MODELS[k] = prepModel(root, SHIP_LENGTH[k], SHIP_NOSE[k]);
+      try {
+        const root = loader.parse(objs[SHIP_SRC[k]]);
+        const mat = new THREE.MeshStandardMaterial({ map: maps[i], metalness: 0.45, roughness: 0.42 });
+        root.traverse((o) => { if (o.isMesh) o.material = mat; });
+        MODELS[k] = prepModel(root, SHIP_LENGTH[k], SHIP_NOSE[k]);
+      } catch (err) { console.warn(`Ship model ${SHIP_SRC[k]} did not parse; ${k} keeps its built-in ship.`, err); }
     });
+    if (!MODELS.striker) throw new Error('no usable ship models');
     usePlayerModel();
+    useModelCarrier();
     if (state === 'title') { clearWorld(); setupTitle(); }
   } catch (err) { console.warn('Ship models unavailable; using the built-in ships.', err); }
   try {
@@ -2214,12 +2292,15 @@ async function loadAssets() {
 function settleAssets() {
   if (assetsSettled) return;
   assetsSettled = true;
-  const old = carrierParts.deck.material;
-  // The painted deck, if it has arrived; the generated one is the fallback when it has not.
-  carrierParts.deck.material = new THREE.MeshStandardMaterial({
-    map: deckMap || deckTexture(), color: deckMap ? 0xffffff : 0xcfd4dc, roughness: 0.85, metalness: 0.3,
-  });
-  old.dispose();
+  // Only the procedural hull has a deck to paint; the model carrier has none.
+  if (carrierParts.deck) {
+    const old = carrierParts.deck.material;
+    // The painted deck, if it has arrived; the generated one is the fallback when it has not.
+    carrierParts.deck.material = new THREE.MeshStandardMaterial({
+      map: deckMap || deckTexture(), color: deckMap ? 0xffffff : 0xcfd4dc, roughness: 0.85, metalness: 0.3,
+    });
+    old.dispose();
+  }
   $('launchBtn').disabled = false;
   refreshTitle();
 }
@@ -2439,10 +2520,12 @@ function buildFighter(captured) {
   g.userData.flames = g.children.filter((m) => m.material === FLAME);
   return g;
 }
-// Wrapped so it flies along +z like the AI ships.
+// Wrapped so it flies along +z like the AI ships. Wingmen and rescued pilots always fly the
+// Striker, whichever airframe the player picked: the flight reads as a flight, and the ship
+// under the player's own guns is the one that is a different shape from everyone else's.
 function buildFriendly(captured = false) {
-  if (MODELS.player) {
-    const g = modelShip('player', captured ? new THREE.Color(0xff4058) : null, THRUST.wing, new THREE.Color(0.4, 0.9, 2), captured ? 0.55 : 0);
+  if (MODELS.striker) {
+    const g = modelShip('striker', captured ? new THREE.Color(0xff4058) : null, THRUST.wing, new THREE.Color(0.4, 0.9, 2), captured ? 0.55 : 0);
     const h = g.userData.half;
     g.add(part(G.sphere, NAV_RED, 0.12, 0.12, 0.12, h.x * 0.95, 0, 0), part(G.sphere, NAV_GREEN, 0.12, 0.12, 0.12, -h.x * 0.95, 0, 0));
     g.userData.hull = [];
@@ -2458,8 +2541,11 @@ function buildFriendly(captured = false) {
 }
 
 // The Swarm: carapace-and-blade fighters that face +z.
+// Two airframes per fodder class, picked per ship at spawn. Same stats, same AI -- this is
+// purely so a wave of eight is not eight copies of one silhouette.
 function buildDrone() {
-  if (MODELS.drone) return modelShip('drone', new THREE.Color(0xffc531), THRUST.drone, new THREE.Color(1.1, 0.6, 0.15));
+  const key = MODELS.bob && Math.random() < 0.45 ? 'bob' : 'drone';
+  if (MODELS[key]) return modelShip(key, new THREE.Color(0xffc531), THRUST.drone, new THREE.Color(1.1, 0.6, 0.15));
   const g = new THREE.Group();
   const shell = phys(0xffc531, { emissive: 0x4a2c00, emissiveIntensity: 0.5, flatShading: true, ...CHITIN_OPTS });
   const dark = phys(0x1b1e29, { metalness: 0.8, roughness: 0.35, clearcoat: 0.4, flatShading: true });
@@ -2480,7 +2566,8 @@ function buildDrone() {
 }
 
 function buildLancer() {
-  if (MODELS.lancer) return modelShip('lancer', new THREE.Color(0xff3048), THRUST.lancer, new THREE.Color(1.3, 0.25, 0.2));
+  const key = MODELS.omen && Math.random() < 0.4 ? 'omen' : 'lancer';
+  if (MODELS[key]) return modelShip(key, new THREE.Color(0xff3048), THRUST.lancer, new THREE.Color(1.3, 0.25, 0.2));
   const g = new THREE.Group();
   const shell = phys(0xff3048, { emissive: 0x500010, emissiveIntensity: 0.5, flatShading: true, ...CHITIN_OPTS });
   const dark = phys(0x1b1e29, { metalness: 0.8, roughness: 0.35, clearcoat: 0.4 });
@@ -2680,14 +2767,15 @@ function buildAce() {
   g.scale.setScalar(1.45);
   return g;
 }
-// The Swarm's capital escort. This is the Warden model at five times its size -- the largest
-// ship asset the game has, enlarged rather than generated from primitives the way the hive ship
-// and Halcyon are. At 70 units it reads as capital-class next to a 6-unit fighter while staying
-// well short of the 520-unit carrier, and the model holds up at that scale because a Warden is
-// already a slab-sided gun platform rather than a detailed airframe.
+// The Swarm's capital escort: the Insurgent at five times its size. It is the heaviest model in
+// the pack at 8,292 triangles -- four times a Warden -- which is exactly why it goes here and
+// nowhere else. One of these is on screen at a time, in a boss wave; put the same hull on a
+// fodder class and a wave of eight would cost more than every other ship in the sector combined.
+// At 70 units it reads as capital-class beside a 5-metre fighter and stays well short of the
+// Halcyon, and it holds up enlarged because it is a slab-sided gun platform, not an airframe.
 function buildCapital() {
-  const g = MODELS.warden
-    ? modelShip('warden', new THREE.Color(0x22e07a), THRUST.warden, new THREE.Color(0.3, 1.4, 0.8), 0.3)
+  const g = MODELS.insurgent
+    ? modelShip('insurgent', new THREE.Color(0x22e07a), THRUST.warden, new THREE.Color(0.3, 1.4, 0.8), 0.3)
     : buildWarden();
   g.scale.setScalar(5);
   // No tractor beam at this size: the cone geometry is sized for a fighter's nose, and a
@@ -3147,7 +3235,110 @@ function buildCarrier() {
   for (const t of carrierParts.turrets) t.head.getWorldPosition(t.world);
   return g;
 }
-const carrier = buildCarrier();
+// ---------------------------------------------------------------- the Halcyon as a model
+// The hand-built catamaran above is now the fallback: the Halcyon is the pack's Zenith at 152x,
+// a bladed prow behind a ring drive. The swap costs real things, and they are worth naming --
+// the painted flight deck, the fly-through tunnel, the chase-lit runway and ten deck turrets
+// were all geometry, and a solid model has none of them. It keeps everything the game reads:
+// the hull boxes enemies dodge and bolts stop at, the point defence, and a shelter where
+// shields come back, all re-hung on the new shape.
+//
+// Hull boxes measured off the model's own vertices in sixteen slabs along z, then scaled by
+// CARRIER_LEN / 12.07 and centred -- see tools/build-ships.py for where the numbers come from.
+const MODEL_CARRIER_BOXES = [
+  [[-177, -171, -380], [177, 171, -190]],   // ring drive and stern block
+  [[-145, -62, -190], [145, 52, -142]],     // shoulder, where the blade meets the ring
+  [[-85, -85, -142], [85, 48, -47]],        // spine
+  [[-85, -85, -47], [85, 4, 95]],           // mid blade
+  [[-49, -71, 95], [49, 0, 237]],           // fore blade
+  [[-42, -70, 237], [42, -15, 380]],        // prow
+];
+// Where shields come back and a tractor beam lets go. The catamaran had a tunnel through it;
+// the Zenith is solid, so the shelter is the keel shadow -- slip under her belly and hold there.
+const MODEL_CARRIER_SHELTER = [[-70, -168, -150], [70, -88, 300]];
+const TUNNEL_SHELTER = [[-26, -10, -460], [26, 25, 320]];
+const box3 = ([a, b]) => new THREE.Box3(V(...a).add(CARRIER_POS), V(...b).add(CARRIER_POS));
+let carrierShelter = box3(TUNNEL_SHELTER);
+
+function buildModelCarrier() {
+  const g = new THREE.Group();
+  const hull = modelShip('carrier', null, null, null);
+  // A fighter's material reads as a dark silhouette at 760 metres: most of what made the
+  // procedural hull legible against the nebula was its emissive map, not its paint. The model's
+  // own texture doubles as that map at a low intensity, which lifts the plating without turning
+  // the ship into a lamp.
+  hull.traverse((o) => {
+    if (!o.isMesh) return;
+    const m = o.material;
+    m.emissiveMap = m.map;
+    m.emissive = new THREE.Color(0xffffff);
+    m.emissiveIntensity = 0.3;
+    m.userData.baseEI = 0.3;
+    m.metalness = 0.55;
+    m.roughness = 0.5;
+    m.envMapIntensity = 1.4;
+    m.needsUpdate = true;
+  });
+  g.add(hull);
+  const h = hull.userData.half;
+  const plate = new THREE.MeshStandardMaterial({ color: 0x9aa4b4, metalness: 0.8, roughness: 0.45 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x141820, metalness: 0.85, roughness: 0.55 });
+
+  // Ring drive: one core the width of the hub, two smaller ones out on the ring itself.
+  for (const [ex, er] of [[0, 46], [-104, 22], [104, 22]]) {
+    const core = part(G.cyl, CARRIER_CORE, er, 0.4, er, ex, 0, -h.z * 0.995);
+    core.rotation.x = Math.PI / 2;
+    const plume = new THREE.Mesh(new THREE.ConeGeometry(er, er * 2.6, 24, 1, true), plumeMat);
+    plume.rotation.x = Math.PI / 2;
+    plume.position.set(ex, 0, -h.z - er * 1.3);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: new THREE.Color(0.25, 0.5, 1.1), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    halo.position.set(ex, 0, -h.z * 1.01);
+    halo.scale.setScalar(er * 4);
+    g.add(core, plume, halo);
+  }
+  // Navigation lights on the ring, port red and starboard green, as on the fighters.
+  g.add(part(G.sphere, NAV_RED, 5, 5, 5, -h.x * 0.97, 0, -h.z * 0.75),
+        part(G.sphere, NAV_GREEN, 5, 5, 5, h.x * 0.97, 0, -h.z * 0.75));
+
+  // Point defence. Eight mounts instead of ten, on the spine and the ring's upper arc, because
+  // this hull has no flight deck to line them along.
+  for (const [x, y, z] of [[-86, 140, -300], [86, 140, -300], [-60, 30, -150], [60, 30, -150],
+                           [-40, 8, 20], [40, 8, 20], [-26, -4, 230], [26, -4, 230]]) {
+    g.add(part(G.cyl, dark, 6, 4, 6, x, y, z));
+    const head = new THREE.Group();
+    head.position.set(x, y + 4.5, z);
+    head.add(part(G.box, plate, 8, 4.5, 9.5));
+    for (const sd of [-1, 1]) {
+      const barrel = part(G.cyl, dark, 0.5, 9, 0.5, sd * 1.8, 0.5, 7);
+      barrel.rotation.x = Math.PI / 2;
+      head.add(barrel);
+    }
+    g.add(head);
+    carrierParts.turrets.push({ head, world: V(), cd: rand(0, 1), side: 1 });
+  }
+
+  g.position.copy(CARRIER_POS);
+  g.updateMatrixWorld(true);
+  for (const t of carrierParts.turrets) t.head.getWorldPosition(t.world);
+  return g;
+}
+
+// Called once, when the models arrive. The procedural hull has already been built and added by
+// then -- it is what the loading title screen shows -- so this swaps it out rather than deciding
+// up front, the same way usePlayerModel() replaces the built-in fighter.
+function useModelCarrier() {
+  if (!MODELS.carrier) return;
+  scene.remove(carrier);
+  disposeObj(carrier);
+  Object.assign(carrierParts, { radar: null, radars: [], chase: null, chaseCount: 0, turrets: [], deck: null });
+  CARRIER_BOXES.length = 0;
+  for (const b of MODEL_CARRIER_BOXES) CARRIER_BOXES.push(box3(b));
+  carrierShelter = box3(MODEL_CARRIER_SHELTER);
+  carrier = buildModelCarrier();
+  scene.add(carrier);
+}
+
+let carrier = buildCarrier();
 scene.add(carrier);
 
 const _ta = V(), _tb = V(), _tq2 = new THREE.Quaternion();
@@ -3159,19 +3350,19 @@ function updateCarrier(dt) {
     cp.radar.rotation.y += dt * 0.7;
   }
   cp.chaseT += dt;
-  for (let i = 0; i < cp.chaseCount; i++) {
-    const ph = (((i - cp.chaseT * 16) % cp.chaseCount) + cp.chaseCount) % cp.chaseCount;
-    cp.chase.setColorAt(i, ph < 3 ? CHASE_ON : CHASE_OFF);
+  if (cp.chase) {
+    for (let i = 0; i < cp.chaseCount; i++) {
+      const ph = (((i - cp.chaseT * 16) % cp.chaseCount) + cp.chaseCount) % cp.chaseCount;
+      cp.chase.setColorAt(i, ph < 3 ? CHASE_ON : CHASE_OFF);
+    }
+    cp.chase.instanceColor.needsUpdate = true;
   }
-  cp.chase.instanceColor.needsUpdate = true;
   plumeMat.uniforms.uTime.value = clock;
 
-  // Fly-through tunnel shelter & shield maintenance field
+  // Shelter: the tunnel on the procedural hull, the keel shadow under the model one. Shields
+  // come back while you hold station there, and a tractor beam loses its grip on you.
   if (player.alive) {
-    const pp = player.rig.position;
-    const dx = pp.x - CARRIER_POS.x, dy = pp.y - CARRIER_POS.y, dz = pp.z - CARRIER_POS.z;
-    const inTunnel = Math.abs(dx) < 26 && dy > -10 && dy < 25 && dz > -460 && dz < 320;
-    if (inTunnel) {
+    if (carrierShelter.containsPoint(player.rig.position)) {
       if (player.shield < 100) {
         player.shield = Math.min(100, player.shield + dt * 15);
         player.shieldFlash = Math.max(player.shieldFlash, 0.15);
@@ -3786,7 +3977,8 @@ function makeEnemy(type, pos, heading) {
   obj.position.copy(pos);
   obj.quaternion.copy(heading);
   scene.add(obj);
-  tagCounter[type] = (tagCounter[type] % 9) + 1;
+  // || 0 because the boss types are not in the table: without it they were all "HIVE-NaN".
+  tagCounter[type] = ((tagCounter[type] || 0) % 9) + 1;
   const e = {
     type, d, obj, hp: d.hp, r: d.r, turn: d.turn * (0.8 + 0.2 * diff()), spd: d.speed * (0.75 + 0.25 * diff()),
     heading: heading.clone(), bank: 0, speed: d.speed * 0.8, vel: V(),
@@ -5695,7 +5887,7 @@ function refreshInstall() {
 // Controls and About are full-screen views rather than separate documents, for one reason: the
 // pause menu has to show the controls without reloading, and a reload would end the run. Routing
 // them through the hash still gives each a URL that can be opened or shared directly.
-const VIEWS = ['controls', 'about'];
+const VIEWS = VIEW_IDS;
 let view = null;        // which reading view is open
 let viewFrom = 'title'; // where Back goes: the title, or the pause screen mid-run
 function openView(name, { hash = true } = {}) {
@@ -5757,6 +5949,7 @@ function refreshTitle() {
     ? 'Enter or A continues · N or X starts a new sortie'
     : 'Enter · controller Start or A';
   refreshDifficulty();
+  refreshFighter();
   drawTitleBoard();
 }
 function drawTitleBoard() {
@@ -5842,8 +6035,32 @@ function updateCamera(dt) {
 // Kept soft so the ship's own design reads clearly from the chase camera.
 const PLAYER_GLOW = glow(0.7, 1.3, 2.4);
 const PLAYER_FLAME = glow(0.35, 0.8, 1.9, { transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
+// Three airframes to fly, identical in every number the simulation reads -- same hull, same
+// shield, same gun. Only the shape and the paint change. The Executioner wears squadron gold,
+// which is a tint over its own blue-grey paint rather than a second texture to download.
+const FIGHTERS = [
+  { id: 'exec', name: 'Executioner', sub: 'Squadron gold, outboard nacelles', tint: 0xffae1f, amount: 0.9 },
+  { id: 'striker', name: 'Striker', sub: 'What your wingmen fly', tint: null, amount: 0 },
+  { id: 'chal', name: 'Challenger', sub: 'Heavy prow, deck green', tint: null, amount: 0 },
+];
+const FIGHTER_KEY = 'sortie.fighter';
+let FIGHTER = FIGHTERS[0];
+try { FIGHTER = FIGHTERS.find((f) => f.id === localStorage.getItem(FIGHTER_KEY)) || FIGHTERS[0]; } catch { /* storage unavailable */ }
+function setFighter(id) {
+  FIGHTER = FIGHTERS.find((f) => f.id === id) || FIGHTERS[0];
+  try { localStorage.setItem(FIGHTER_KEY, FIGHTER.id); } catch { /* storage unavailable */ }
+  if (MODELS.striker) usePlayerModel();
+  refreshFighter();
+}
+function refreshFighter() {
+  $('shipLever').innerHTML = FIGHTERS.map((f) =>
+    `<button class="diffopt ${f.id === FIGHTER.id ? 'on' : ''}" type="button" data-ship="${f.id}">${f.name}</button>`).join('');
+  $('shipNote').textContent = `${FIGHTER.sub} · paint only, every airframe flies the same`;
+}
 function usePlayerModel() {
-  const ship = modelShip('player', null, PLAYER_GLOW, new THREE.Color(1, 2.2, 5));
+  const f = FIGHTER;
+  const key = MODELS[f.id] ? f.id : 'striker';
+  const ship = modelShip(key, f.tint ? new THREE.Color(f.tint) : null, PLAYER_GLOW, new THREE.Color(1, 2.2, 5), f.amount);
   const flames = [];
   for (const n of ship.userData.nozzles) {
     const fl = part(G.cone, PLAYER_FLAME, n.rx * 0.75, 1, n.ry * 0.75, n.p.x, n.p.y, n.p.z - 0.45);
@@ -6082,6 +6299,10 @@ $('launchBtn').addEventListener('click', () => { if (state === 'title' && assets
 $('diffLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-diff]');
   if (b) setLevel(b.dataset.diff);
+});
+$('shipLever').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ship]');
+  if (b) setFighter(b.dataset.ship);
 });
 $('tBoardSwap').addEventListener('click', () => {
   boardView = boardView === 'global' ? 'local' : 'global';

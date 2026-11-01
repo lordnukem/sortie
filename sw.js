@@ -6,14 +6,14 @@
 //   - everything else goes cache-first, because the assets are large, immutable in practice, and
 //     the whole point is that a bad connection does not stop a sortie.
 // Bumping CACHE on deploy drops the previous generation wholesale.
-const CACHE = 'sortie-v10';
+const CACHE = 'sortie-v13';
 
 // Fetched eagerly on install so the first offline launch works. Deliberately short: the voice
 // pack and ship models are large and arrive on demand through the cache-first path.
 const CORE = [
   './',
   './index.html',
-  './assets/ship-models.js',
+  './assets/ship-models.js?v=bba25dc9',
   './assets/icon/ship-192.png',
   './manifest.webmanifest',
 ];
