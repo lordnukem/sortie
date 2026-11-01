@@ -456,11 +456,46 @@ const MAX_SPEED = 70;
 const BOLT_SPEED = 330;
 const ENEMY_BOLT_SPEED = 200;
 const CARRIER_POS = V(0, -20, 0);
+const VIEW_IDS = ['controls', 'about'];  // the reading views, needed both here and by the router below
 const LAUNCH_POS = V(0, 28, -550);
 
 // ---------------------------------------------------------------- renderer, camera, lights, post-processing
 const glCanvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: 'high-performance' });
+// Building the renderer is the one line in this module that fails on the machine rather than on the
+// network: no WebGL at all, a blocklisted driver, or too many live contexts in one browser. An
+// uncaught throw here aborts the whole module, so setupTitle() never runs and the launch button sits
+// disabled reading "Loading ships..." with nothing to explain it. The asset path is already capped at
+// ten seconds by the settleAssets timeout, so a permanent stall on that button can only come from
+// here. Say what happened, keep the reading views reachable, and then let the throw stand: there is
+// no version of this game without a renderer.
+function noWebGL(err) {
+  console.error('WebGL is unavailable, so Sortie cannot run.', err);
+  glCanvas.hidden = true;
+  $('launchBtn').textContent = 'WebGL unavailable';
+  const hint = $('startHint');
+  hint.className = 'note';
+  hint.innerHTML = 'This browser could not open a 3D context. Turn on hardware acceleration, or try '
+    + 'another browser or device. The <a class="link" href="stats.html">records page</a> works either way.';
+  for (const id of ['continueBtn', 'tBoardPanel', 'diffPanel', 'shipPanel', 'installPanel']) $(id).hidden = true;
+  // A standalone router for the two reading views: the one further down this file is never reached,
+  // and the flight manual is worth reading even on a machine that cannot fly.
+  const show = () => {
+    const want = VIEW_IDS.includes(location.hash.slice(1)) ? location.hash.slice(1) : null;
+    for (const v of VIEW_IDS) $(v).hidden = v !== want;
+    $('title').hidden = !!want;
+  };
+  for (const id of ['controlsBack', 'aboutBack']) $(id).addEventListener('click', () => { location.hash = ''; });
+  window.addEventListener('hashchange', show);
+  show();
+}
+const renderer = (() => {
+  try {
+    return new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: 'high-performance' });
+  } catch (err) {
+    noWebGL(err);
+    throw err;
+  }
+})();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -5852,7 +5887,7 @@ function refreshInstall() {
 // Controls and About are full-screen views rather than separate documents, for one reason: the
 // pause menu has to show the controls without reloading, and a reload would end the run. Routing
 // them through the hash still gives each a URL that can be opened or shared directly.
-const VIEWS = ['controls', 'about'];
+const VIEWS = VIEW_IDS;
 let view = null;        // which reading view is open
 let viewFrom = 'title'; // where Back goes: the title, or the pause screen mid-run
 function openView(name, { hash = true } = {}) {
