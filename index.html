@@ -384,6 +384,16 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <p class="eyebrow">Debrief · Fleet Strike Command</p>
     <h2 class="name">SORTIE<span>COMPLETE</span></h2>
     <p class="rank" id="dRank">Flight Officer</p>
+    <div class="panel" id="dEntryPanel" hidden>
+      <h2 id="dEntryTitle">You made the board — enter your name</h2>
+      <div class="initials" id="dInitials"></div>
+      <p class="sub">Up / down for a letter · left / right for a slot · Enter, Fire or A to confirm</p>
+    </div>
+    <div class="panel" id="dBoardPanel" hidden>
+      <h2>Gold leader board</h2>
+      <p class="board-src"><span id="dBoardWhich">This browser</span></p>
+      <table class="board" id="dBoard"></table>
+    </div>
     <div class="panel">
       <h2>Combat record</h2>
       <dl class="stats">
@@ -401,16 +411,6 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="panel" id="dLogPanel" hidden>
       <h2>Stage by stage</h2>
       <table class="threats" id="dLog"></table>
-    </div>
-    <div class="panel" id="dEntryPanel" hidden>
-      <h2 id="dEntryTitle">You made the board — enter your name</h2>
-      <div class="initials" id="dInitials"></div>
-      <p class="sub">Up / down for a letter · left / right for a slot · Enter, Fire or A to confirm</p>
-    </div>
-    <div class="panel" id="dBoardPanel" hidden>
-      <h2>Gold leader board</h2>
-      <p class="board-src"><span id="dBoardWhich">This browser</span></p>
-      <table class="board" id="dBoard"></table>
     </div>
     <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button></div>
   </section>
@@ -5100,6 +5100,14 @@ function objective(id, label, need) { return { id, label, need, got: 0, done: fa
 function queuedShips() {
   return spawnQueue.reduce((n, q) => n + (q.type === 'raider' ? 1 : q.count || 1), 0);
 }
+// Everything still standing between the player and the end of the wave: alive plus not yet
+// arrived. This is the quantity `updateFlow` actually tests for, so the HUD reads the same
+// number the rule does rather than a proxy for it.
+function contactsLeft() {
+  let alive = 0;
+  for (const e of enemies) if (!e.dead) alive++;
+  return alive + queuedShips();
+}
 
 function buildObjectives(n, kind) {
   const o = [];
@@ -5132,7 +5140,12 @@ function buildObjectives(n, kind) {
 function updateObjectives() {
   if (!waveMark) return;
   for (const o of objectives) {
-    if (o.id === 'kills') o.got = kills - waveMark.kills;
+    // Counted from what is left rather than from kills. Driving this off the kill tally let it
+    // show a tick while the sector was still hot: `need` is the ships queued at wave start, and
+    // `spawnRaider()` adds ships mid-wave that were never in that figure, so killing one pushed
+    // the tally to target early. The wave ends on nothing being alive and nothing queued, so
+    // that is what this now measures, and it cannot complete before the wave does.
+    if (o.id === 'kills') o.got = Math.max(0, o.need - contactsLeft());
     else if (o.id === 'rocks') o.got = rocksDestroyed - waveMark.rocks;
     else if (o.id === 'noloss') o.got = lives < waveMark.lives ? 0 : 1;
     else if (o.id === 'hull') o.got = player.alive && player.hull >= 50 ? 1 : 0;
@@ -6396,12 +6409,32 @@ function drawHud() {
   c.font = MONO(16);
   c.fillText(String(wave), 16, 75);
 
-  // Objectives, live. Bonus only, so they are informational rather than a threat -- which is why
-  // they sit quietly under the wave number instead of anywhere near the gunsight.
+  // How the wave ends, which the HUD never actually said. The only thing resembling it was one
+  // line inside the panel below -- a panel the game deliberately frames as bonus-only, in
+  // identical styling to three genuinely optional goals. A player who read that panel and
+  // concluded none of it was mandatory read it exactly as built. So the end condition now has
+  // its own line above the bonuses, it is drawn at every width because it is not optional, and
+  // it names the two things that keep a wave open: what is alive and what has yet to jump in.
   let oy = 96;
+  // A hold-out ends on relief arriving rather than on a body count, and its own clock is already
+  // on screen, so a contact count there would be describing the wrong rule.
+  if (waveActive && !holdout) {
+    const alive = enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
+    const inbound = queuedShips();
+    c.font = MONO(10); c.fillStyle = C.dim;
+    c.fillText('SECTOR', 16, oy);
+    oy += 16;
+    c.font = FONT(13, 700);
+    c.fillStyle = alive ? C.red : inbound ? C.amber : C.green;
+    c.fillText(alive || inbound
+      ? `${alive} ENGAGED${inbound ? ` · ${inbound} INBOUND` : ''}`
+      : 'SECTOR CLEAR', 16, oy);
+    oy += 20;
+  }
+  // The bonus goals. Named as bonuses now, because the mandatory one is no longer among them.
   if (objectives.length && !narrow) {
     c.font = MONO(10); c.fillStyle = C.dim;
-    c.fillText('OBJECTIVES', 16, oy);
+    c.fillText('BONUS', 16, oy);
     oy += 15;
     for (const o of objectives) {
       const prog = o.id === 'fast' ? `${Math.min(waveT, o.need).toFixed(0)}/${o.need}s`

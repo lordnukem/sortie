@@ -73,6 +73,40 @@ know how many opened the game, on what, or where they stopped.
 only for people who submit a score. That is a wider collection than before and a deliberate
 choice; it is behind the admin gate and the sessions CSV is admin-only.
 
+## Sprint 2a — say how a wave ends ✅ done 2026-11-01
+
+Raised by the first real playtest: *"Wave completion is also not clear to me. Was I supposed to
+clear all enemies?"* Yes — `index.html:5249` ends a wave when the spawn queue is empty **and**
+nothing is alive. The game never said so.
+
+Three faults, all in presentation:
+
+- **The mandatory goal was dressed as a bonus.** "Destroy the strike group" sat in the
+  OBJECTIVES panel in identical styling to three optional goals, under a panel the code itself
+  comments as *"Bonus only, so they are informational rather than a threat."* Reading that panel
+  and concluding none of it was mandatory was reading it as built.
+- **It could tick complete while the sector was hot.** Progress came from the kill tally against
+  `need = queuedShips()` measured at wave start, but `spawnRaider()` adds ships mid-wave that
+  were never in that figure. Kill one and the objective reached target early.
+- **Nothing showed what was left.** The count was kills *scored*, not contacts *remaining*, and
+  the only other wave-state readout is the NEXT FLIGHT countdown — which says more are coming,
+  not how many are still out there. "Am I nearly done?" was unanswerable, and a player can be
+  flying through an apparently empty sector with four ships still queued.
+
+Fixed: a `SECTOR` line above the bonuses reading `N ENGAGED · M INBOUND` (red while anything is
+alive, amber while anything is queued, green on `SECTOR CLEAR`), drawn at **every** width because
+it is not optional — the bonus panel is still hidden under 680 px. It reads `contactsLeft()`,
+the same quantity `updateFlow` tests, so the HUD and the rule cannot drift. The old panel is
+relabelled `BONUS`. The primary objective now counts down from what is left and cannot complete
+before the wave does. Hold-outs are excluded: they end on relief, not a body count, and have
+their own clock.
+
+**Open question, not changed here.** "Destroy the strike group" is now redundant with the SECTOR
+line, and it was never really a bonus: objectives are scored at `waveComplete()`, which only runs
+once everything is dead, so its +0.5× always pays. Removing it would be tidier and would drop
+every wave's multiplier by 0.5×, which makes existing leader board entries non-comparable. Left
+alone deliberately; it is a scoring decision, not a clarity one.
+
 ## Sprint 2 — read the data, then measure the gun
 
 Data-gated: do not start until the funnel has real visits in it.
