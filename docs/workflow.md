@@ -77,7 +77,13 @@ cheaper than it was in the sprint that prompted this document.
 - **Deploying is a copy, not a checkout.** `/var/www/sortie/` and
   `/home/ubuntu/sortie-api/server.js` are separate copies of the repo files.
   Restarting `sortie-api` does *not* pick up changes in `server/server.js` — the
-  `level` column migration appeared to fail for exactly this reason.
+  `level` column migration appeared to fail for exactly this reason. The API is
+  now more than one file: `server/multiplayer.js` has to be copied beside
+  `server.js`, or the service will not start at all.
+- **`server/nginx-sortie.conf` is a reference copy, not the live file.** The live
+  vhost is `/etc/nginx/sites-available/sortie`; it also carries an unrelated
+  service, and certbot rewrites its `listen`/`ssl_*` lines. Never `cp` the repo
+  copy over it. It drifted for a week and nearly reverted the cache-header fix.
 - **`sudo` for `/var/www`, and never suppress stderr on the copy.** A deploy that
   hid its permission errors looked like it had succeeded and had done nothing.
 - **Bump `CACHE` in `sw.js`** on any client change, or installed copies stay stale.

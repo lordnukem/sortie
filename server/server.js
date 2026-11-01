@@ -11,6 +11,7 @@ const http = require('node:http');
 const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const { initMultiplayer } = require('./multiplayer.js');
+
 const PORT = Number(process.env.PORT || 8791);
 const HOST = process.env.HOST || '127.0.0.1';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'scores.db');
@@ -546,5 +547,8 @@ const server = http.createServer(async (req, res) => {
 
   send(res, 404, { error: 'no such endpoint' });
 });
-const sector = initMultiplayer(server);
+// Co-op relay on /ws. It shares this file's origin allowlist rather than keeping its own: a
+// WebSocket handshake is exempt from the same-origin policy, so that list is the only thing
+// standing between the sector and any page on the internet.
+const sector = initMultiplayer(server, { origins: ORIGINS });
 server.listen(PORT, HOST, () => console.log(`sortie-api on http://${HOST}:${PORT} db=${DB_PATH}`));
