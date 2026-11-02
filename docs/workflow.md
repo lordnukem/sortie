@@ -1,9 +1,12 @@
 # How this project gets built
 
 Written 2026-10-31, after measuring one sprint that was delegated to agy against
-three comparable sprints done inline. The numbers are in the last section; the
-short version is that delegating the *implementation* of a small change saved
-nothing, because the cost of this project is reading and verifying, not typing.
+three comparable sprints done inline. Extended 2026-11-02 with two server-side
+sprints, one inline and one run with haiku surveys. The numbers are in the last
+section; the short version is that delegating the *implementation* of a small
+change saved nothing, because the cost of this project is reading and verifying,
+not typing — but delegating the *reading* measurably did, and the two should
+never have shared one rule.
 
 ## What shapes the workflow
 
@@ -26,7 +29,7 @@ candidates and none of the most expensive predicting which one wins.
 | Gameplay sprints in `index.html` — mechanics, balance, numbers, feel | Opus, inline |
 | "Where does this live, what calls it" surveys | Haiku, parallel, read-only |
 | Satellite files against a known contract | Sonnet subagent |
-| Verification harnesses — the script, not the verdict | Haiku |
+| Verification harnesses — the script and the verdict | Opus, inline (measured 2026-11-02) |
 | Image and asset generation | agy (Imagen) |
 | Audio, art and feel judgment | Fadzly |
 | Deploy, commit, infra, security | Opus, never delegated |
@@ -57,12 +60,20 @@ cheaper than it was in the sprint that prompted this document.
 ## The per-sprint loop
 
 1. **Survey** — haiku, parallel, read-only. One agent per independent question,
-   each returning `file:line` anchors and call sites, no prose. This is the only
-   step that meaningfully reduces the main session's reading.
+   each returning `file:line` anchors and call sites, no prose. This is the step
+   that pays, and not mainly in tokens: a fresh reader of unfamiliar code finds
+   what you did not know to look for. The co-op sprint's survey turned up
+   `judge()` in `server/server.js`, an anti-cheat layer nobody had mentioned,
+   which is why the co-op board's ceiling and pace floor scale with the flight
+   instead of rejecting every legitimate four-pilot run.
 2. **Decide and implement** — Opus, inline. `index.html` and anything numeric.
 3. **Satellites** — sonnet subagent, only when the sprint touches them. Give it
    the contract and the command that proves it works.
-4. **Harness** — haiku writes the check; the main session reads only pass or fail.
+4. **Harness** — write it yourself. Delegating one was measured and did not pay:
+   the brief for a harness *is* a protocol spec, which is the same understanding
+   as writing the thing, and the returned script was discarded and rewritten
+   anyway. Commit the harness when it guards something that breaks quietly —
+   `tools/relay-test.js` is 33 checks over real sockets.
 5. **Verify** — by execution, in the main session. Every real defect so far fell
    out of *running* something: the content-type curl, three runs each ended by
    clicking the button rather than pressing Enter, driving the difficulty lever in
@@ -77,7 +88,13 @@ cheaper than it was in the sprint that prompted this document.
 - **Deploying is a copy, not a checkout.** `/var/www/sortie/` and
   `/home/ubuntu/sortie-api/server.js` are separate copies of the repo files.
   Restarting `sortie-api` does *not* pick up changes in `server/server.js` — the
-  `level` column migration appeared to fail for exactly this reason.
+  `level` column migration appeared to fail for exactly this reason. The API is
+  now more than one file: `server/multiplayer.js` has to be copied beside
+  `server.js`, or the service will not start at all.
+- **`server/nginx-sortie.conf` is a reference copy, not the live file.** The live
+  vhost is `/etc/nginx/sites-available/sortie`; it also carries an unrelated
+  service, and certbot rewrites its `listen`/`ssl_*` lines. Never `cp` the repo
+  copy over it. It drifted for a week and nearly reverted the cache-header fix.
 - **`sudo` for `/var/www`, and never suppress stderr on the copy.** A deploy that
   hid its permission errors looked like it had succeeded and had done nothing.
 - **Bump `CACHE` in `sw.js`** on any client change, or installed copies stay stale.
@@ -108,10 +125,69 @@ the term that dominates Claude Pro consumption.
 | Radar, pilots, save (inline) | 3 | 147/21 | 65 | 65K | 24.4M | 23 min | 21.7 | 8.1M |
 | Objectives, hold-out, ace boss (inline) | 7 | 505/130 | 209 | 199K | 50.9M | 153 min | 29.9 | 7.3M |
 | **Difficulty (delegated to agy)** | 3 | 103/33 | 113 | 68K | 18.8M | 71 min | **37.7** | 6.3M |
+| PR #8 relay rewrite (inline) | 5 | 540/372 | 69 | 60K | 13.0M | 10 min | 13.8 | 2.6M |
+| **Co-op items 0+1 (haiku surveys + harness)** | 2 | 950/77 | 59 | 106K | 16.6M | 13 min | 29.5 | 8.3M |
 
 Cache read per item barely moved — 6.3M delegated against 6.6–8.1M inline — while
 turns per item rose by about half and wall clock tripled against the closest
 comparable sprint. The brief ran 167 lines for 103 lines of shipped code.
+
+## Why the last two rows need a different denominator
+
+Per *item* makes the co-op sprint look like the worst run in the table. Per item is
+the wrong unit once the items stop being the same size: its two items were 950
+lines, against 103 for the agy sprint and 147 for the radar one. Normalised by what
+was actually shipped:
+
+| Sprint | ins | turns / 100 ln | cache read / 100 ln |
+|---|---|---|---|
+| Auto-fire, mines, crates, Warden (inline) | 358 | 29.9 | 9.3M |
+| Radar, pilots, save (inline) | 147 | 44.2 | 16.6M |
+| Objectives, hold-out, ace boss (inline) | 505 | 41.4 | 10.1M |
+| Difficulty (delegated to agy) | 103 | 109.7 | 18.3M |
+| PR #8 relay rewrite (inline) | 540 | 12.8 | 2.4M |
+| **Co-op items 0+1 (surveys + harness)** | 950 | **6.2** | **1.7M** |
+
+**Only the last two rows may be compared with each other.** Everything above them is
+gameplay work inside `index.html`, which is inherently dearer per line — a 7,000-line
+file re-read across every turn, and numeric changes that need a browser to judge. A
+server-side sprint being four times cheaper per line than a gameplay one says nothing
+about delegation; it says the two kinds of work are not alike. The agy row stays worst
+even against its own category, which is the finding that still holds.
+
+Against the one fair comparison — PR #8, the same week, the same files, no
+delegation — the agentic run was **51% fewer turns and 27% less cache read** than
+that run's own rate extrapolated to 950 lines, for 178K haiku tokens that never
+entered the main context. Delegation added about a minute of wall clock across three
+agents, most of it parallel, against the 3x the agy sprint cost.
+
+**One confound, named rather than buried:** `net.js` is 345 of those 950 lines and is
+greenfield, so it required reading nothing at all. Charging every one of the 59 turns
+against only the 605 lines that touched existing files still gives 9.8 turns/100 ln
+against PR #8's 12.8 — the advantage shrinks from roughly 2x to 1.3x, but it does not
+invert.
+
+## Two tests, not one
+
+The single brief-shorter-than-the-code test was right about implementation and wrong
+to be applied to everything. Split it:
+
+**Surveys — delegate always, and not to save typing.** A fresh reader of code you have
+not read finds what you do not know to look for. Two surveys of 20-odd lines each
+covered 668 and 7,550 lines; one of them returned `judge()`, an anti-cheat layer whose
+existence changed the design of the co-op board. A grep cannot find what you would
+never have thought to grep for.
+
+**Harnesses — write them yourself.** The delegated one cost 63K tokens, took a 45-line
+brief, and its output was discarded and replaced with 272 lines written here. It fails
+the brief-shorter-than-the-code test for the same reason agy's implement step did: a
+brief precise enough to delegate safely takes the same understanding as writing the
+thing.
+
+And the point that outlives both: **the delegated harness did not catch the
+sector-reaping bug. Running something caught it**, and running something was going to
+happen either way. Delegation moved reading off the main context. It did not find a
+single defect that execution would not have found.
 
 Two findings worth keeping:
 

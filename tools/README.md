@@ -164,3 +164,105 @@ The modulation matters as much as the spectrum. The old 40 / 40.7 Hz detune beat
 that rose with throttle — a metronome, not turbulence. Each layer is now modulated by its own
 stream of heavily smoothed **noise**: a sine modulator gives a wobble the ear locks onto within a
 second.
+
+## The relay harness
+
+`relay-test.js` drives the co-op relay over real sockets. It needs a server of its own, never
+the live one:
+
+```bash
+DB_PATH=/tmp/t.db PORT=8796 GEO=0 node server/server.js &
+node tools/relay-test.js 8796
+```
+
+Thirty-three checks across sectors and lobbies, the player and address caps, host authority,
+the frame reader's hardening, and the co-op board's plausibility rules.
+
+**Everything in it goes through a socket, because that is where this code's bugs have been.**
+Two were caught here and neither was visible in a diff: a sector that would not reap, because
+the relay's sweep ran from a close handler registered *before* the sector's own and so swept
+while the leaver was still counted; and an `EventEmitter` emitting `'error'` with no listener,
+which throws — a write to a peer that had just vanished failed asynchronously with `EPIPE`, the
+throw landed outside every `try/catch`, and closing a browser tab mid-broadcast killed the API.
+
+**Each client sends its own `X-Forwarded-For`.** That is how the relay sees distinct pilots in
+production, since nginx sets it, and it stops the per-address cap from masking the per-sector
+one — a confusion that had already turned a real test into a skipped one.
+
+## Playing co-op locally
+
+The two halves of co-op only meet behind a reverse proxy: `index.html` resolves its API to a
+bare `/api` on localhost and `net.js` resolves the socket to a same-origin `/ws`, so without
+something joining them on one port neither can be exercised. `devserve.js` is that something.
+
+```bash
+DB_PATH=/tmp/t.db PORT=8796 GEO=0 node server/server.js &
+node tools/devserve.js 8777 8796
+node tools/ghost-pilot.js --port 8796 --sector YAH3 --callsign WINGMAN
+```
+
+**`ghost-pilot.js` is the second pilot, and it exists because two browsers do not work here.**
+Two WebGL contexts under a software renderer wedge the machine before they prove anything — the
+first attempt at a two-browser test timed out three times and never rendered a frame. The ghost
+joins, reads the tick like any client, and flies station on whoever else is in the sector. When a
+peer fails to appear on screen, the fault is in the client rather than in whatever the other
+browser happened to be doing.
+
+Two things it taught, both now in its comments. It has to **lead** the ship it follows: a pilot
+doing 40 a second leaves their last reported point behind before the next tick, so a ghost that
+orbits that point sits permanently astern and never once appears on screen. And the dev proxy has
+to **synthesise a per-connection address**, because in production every pilot arrives from their
+own address and nginx forwards it, while locally every browser is `127.0.0.1` — four tabs would
+exhaust the relay's per-address cap and the fifth would be refused for a reason that does not
+exist in the real deployment.
+
+One thing that looks like a bug and is not: **the join takes about eight seconds**. The socket is
+created immediately but `onopen` cannot dispatch until the main thread finishes parsing the 1.9 MB
+ship bundle. Measured: socket created at 0s, join frame sent between 5s and 10s, everything
+correct from there.
+
+### Testing the host and guest halves separately
+
+`ghost-pilot.js --swarm 9` makes the ghost pretend to host a sortie and broadcast nine Swarm
+ships. Without it the guest half is untestable, because proving a guest renders the host's
+enemies needs a host that is a browser, and a guest that is a browser, at the same time.
+
+So the two halves are proven separately, each against a real relay:
+
+```bash
+# host half -- a browser hosts, the ghost listens and counts what reaches the wire
+node tools/ghost-pilot.js --port 8796 --sector ABCD --callsign OBSERVER --seconds 40
+#   -> wave 1 (fight), most ships in one 4, mean 323 bytes
+
+# guest half -- the ghost hosts a fake Swarm, a browser joins and draws it
+node tools/ghost-pilot.js --port 8796 --callsign SWARMLORD --swarm 9 --seconds 300
+```
+
+Measured on the wire: **about 80 bytes a ship**, so a late wave of 28 is around 2.2 KB a
+snapshot — the figure the sprint plan guessed at, now confirmed, and comfortably inside the
+relay's 64 KiB frame cap.
+
+**Headless Chromium throttles `requestAnimationFrame` on a page nobody is looking at**, to
+roughly one or two frames a second, which throttles everything the game sends with it. Taking a
+screenshot forces a frame, so a loop of screenshots is how a test drives the game at a usable
+rate. Snapshot counts measured this way are a floor, not the real rate.
+
+### Why the ghost shoots the furthest ship, and what it cannot test
+
+`--attack` makes the ghost report hits against the host's Swarm, and `--swarm` makes it pretend
+to host one and credit whatever is reported to it. Between them the two directions of the
+damage path can be exercised without ever running two browsers.
+
+**Against a headless host, drones ram the player and die within a second of spawning.** The
+first version of this test aimed at the first ship in the snapshot and reported zero kills for
+an hour, which read exactly like a broken credit path and was only ever a slow shooter: by the
+time a report crossed the wire the ship had already killed itself on an idle pilot. Two things
+came out of chasing it. The ghost now picks the ship **furthest from the lead pilot**, which is
+the one that survives long enough for a reported hit to be the shot that finishes it. And when
+nothing lives long enough to die at all, the honest signal is not the kill but the **hp field in
+the next snapshot** — a reported hit that moves the host's own number for that ship proves the
+path whether or not anything dies at the end of it.
+
+What this rig still cannot reach is a browser *receiving* credit while a browser hosts, because
+that needs two of them at once. The receive side is proven with a ghost standing in for the
+browser, and the figure to look for is `credited N kills worth M`.

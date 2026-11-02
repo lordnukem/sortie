@@ -234,6 +234,11 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <div class="difflever" id="diffLever"></div>
       <p class="sub" id="diffNote"></p>
     </div>
+    <div class="panel" id="wingPanel">
+      <h2>Wingmen</h2>
+      <div class="difflever" id="wingLever"></div>
+      <p class="sub" id="wingNote"></p>
+    </div>
     <div class="panel" id="shipPanel">
       <h2>Fighter</h2>
       <div class="difflever" id="shipLever"></div>
@@ -242,6 +247,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="actions">
       <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
+      <button class="launch ghost" id="titleFull" type="button" hidden>Full screen</button>
       <p class="sub" id="startHint">Enter · controller Start or A</p>
     </div>
     <div class="panel install" id="installPanel" hidden>
@@ -253,6 +259,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       </div>
     </div>
     <nav class="links">
+      <a class="link" href="#flight">Co-op</a>
       <a class="link" href="#controls">Controls</a>
       <a class="link" href="#about">About</a>
       <a class="link" href="stats.html">Records</a>
@@ -369,6 +376,53 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   </section>
 </div>
 
+<div class="overlay" id="flight" hidden>
+  <section class="brief">
+    <p class="eyebrow">Flight channel</p>
+    <h2 class="name">CO-OP<span>Fly it together</span></h2>
+    <p class="lede">Up to four pilots against the same Swarm. One of you runs the fight and the
+      others fly it &mdash; the carrier&rsquo;s reserve fighters are shared, so the sortie ends when the
+      last of them is gone.</p>
+
+    <div class="panel" id="flightNow" hidden>
+      <h2>Your flight</h2>
+      <p class="sub" id="flightSector"></p>
+      <p class="note" id="flightRoster"></p>
+      <div class="actions">
+        <button class="launch ghost" id="flightLeave" type="button">Leave the flight</button>
+      </div>
+    </div>
+
+    <div class="panel" id="flightJoin">
+      <h2>Join</h2>
+      <div class="actions">
+        <button class="launch" id="flightQuick" type="button">Quick match</button>
+        <button class="launch ghost" id="flightNew" type="button">Open a private flight</button>
+      </div>
+      <p class="note" id="flightHint">Quick match puts you in with whoever is already up. A private
+        flight is unlisted &mdash; only the four characters it gives you will reach it.</p>
+    </div>
+
+    <div class="panel" id="flightOpen">
+      <h2>Flights looking for pilots</h2>
+      <div class="difflever" id="flightList"></div>
+    </div>
+
+    <div class="panel" id="flightByCode">
+      <h2>Someone gave you a code</h2>
+      <div class="initials" id="flightCode"></div>
+      <p class="note">Type it, or use the arrows. A link works too: anyone can send you
+        <b>sortiethegame.com/?flight=CODE</b> and it opens straight into their flight.</p>
+    </div>
+
+    <div class="actions">
+      <button class="launch" id="flightBack" type="button">Back</button>
+      <p class="sub">Esc or Back</p>
+    </div>
+    <nav class="links"><a class="link" href="#controls">Controls</a><a class="link" href="#about">About</a></nav>
+  </section>
+</div>
+
 <div class="overlay" id="pause" hidden>
   <section class="brief">
     <p class="eyebrow">Flight paused</p>
@@ -403,6 +457,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <h2>Combat record</h2>
       <dl class="stats">
         <dt>Score</dt><dd id="dScore">0</dd>
+        <dt id="dTeamK" hidden>Flight total</dt><dd id="dTeam" hidden>0</dd>
         <dt>Waves cleared</dt><dd id="dWaves">0</dd>
         <dt>Swarm kills</dt><dd id="dKills">0</dd>
         <dt>Asteroids destroyed</dt><dd id="dRocks">0</dd>
@@ -438,6 +493,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+// The socket lives in its own file; see the note at the top of net.js for why. The ?v= is
+// bumped by hand on every change to it, the same discipline as CACHE in sw.js, because a
+// module served under an unchanged URL is how eleven ships once arrived as five.
+import { net } from './net.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -456,7 +515,7 @@ const MAX_SPEED = 70;
 const BOLT_SPEED = 330;
 const ENEMY_BOLT_SPEED = 200;
 const CARRIER_POS = V(0, -20, 0);
-const VIEW_IDS = ['controls', 'about'];  // the reading views, needed both here and by the router below
+const VIEW_IDS = ['controls', 'about', 'flight'];  // the routed views, needed here and by the router below
 const LAUNCH_POS = V(0, 28, -550);
 
 // ---------------------------------------------------------------- renderer, camera, lights, post-processing
@@ -476,7 +535,7 @@ function noWebGL(err) {
   hint.className = 'note';
   hint.innerHTML = 'This browser could not open a 3D context. Turn on hardware acceleration, or try '
     + 'another browser or device. The <a class="link" href="stats.html">records page</a> works either way.';
-  for (const id of ['continueBtn', 'tBoardPanel', 'diffPanel', 'shipPanel', 'installPanel']) $(id).hidden = true;
+  for (const id of ['continueBtn', 'tBoardPanel', 'diffPanel', 'wingPanel', 'shipPanel', 'installPanel']) $(id).hidden = true;
   // A standalone router for the two reading views: the one further down this file is never reached,
   // and the flight manual is worth reading even on a machine that cannot fly.
   const show = () => {
@@ -3708,16 +3767,38 @@ function spawnField(count) {
   const pp = player.rig.position;
   const at = (lo, hi) => pp.clone().addScaledVector(V(rand(-1, 1), rand(-0.6, 0.6), rand(-1, 1)).normalize(), rand(lo, hi));
   const drift = (sp) => V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(sp);
-  for (let i = 0; i < count; i++) {
-    spawnRock(3, at(160, 430), drift(rand(...ROCKS[3].speed)), true);
-  }
+  // Sent as a list, once, and then each client flies its own copy. The field is scenery that
+  // drifts predictably: putting it in the 20 Hz snapshot would multiply the largest message on
+  // the wire for rocks that nobody is going to disagree about. Whose asteroids break first can
+  // differ between clients, and that is a cosmetic difference, not a broken sortie -- rocks
+  // never hold a wave open, which is why this is safe where the Swarm would not be.
+  const made = [];
+  const rock = (p, v) => { spawnRock(3, p, v, true); made.push(['r', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z)]); };
+  const mine = (p, v) => { spawnMine(p, v, true); made.push(['m', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z)]); };
+  const crate = (k, p, v) => { spawnPickup(k, p, v, true); made.push(['p', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z), k]); };
+
+  for (let i = 0; i < count; i++) rock(at(160, 430), drift(rand(...ROCKS[3].speed)));
   // Mines come with the rocks, not instead of them: the field is cover worth using and a reason
   // to look where you are going, and it should be both at once.
   const mineN = Math.min(7, 1 + Math.floor(count / 2));
-  for (let i = 0; i < mineN; i++) spawnMine(at(150, 420), drift(rand(1.5, 5)), true);
+  for (let i = 0; i < mineN; i++) mine(at(150, 420), drift(rand(1.5, 5)));
   // And something to find in there.
   const crates = 1 + Math.floor(count / 4);
-  for (let i = 0; i < crates; i++) spawnPickup(pickKind(), at(170, 400), drift(rand(1, 4)), true);
+  for (let i = 0; i < crates; i++) crate(pickKind(), at(170, 400), drift(rand(1, 4)));
+
+  if (net.connected && net.host) net.send('field', { f: made });
+}
+// The same field, built from the host's list. clearField() first, because a guest that has been
+// through a wave already is still carrying the last one.
+function applyField(rows) {
+  clearField();
+  for (const row of rows || []) {
+    const [kind, px, py, pz, vx, vy, vz, extra] = row;
+    const p = V(px, py, pz), v = V(vx, vy, vz);
+    if (kind === 'r') spawnRock(3, p, v, true);
+    else if (kind === 'm') spawnMine(p, v, true);
+    else if (kind === 'p') spawnPickup(PICKUPS[extra] ? extra : pickKind(), p, v, true);
+  }
 }
 let banner = { text: '', sub: '', t: 0, life: 0 };
 let comms = [];
@@ -3760,7 +3841,7 @@ function saveRun() {
     v: SAVE_V, at: Date.now(), wave, score, lives, kills, shots, hits,
     rocks: rocksDestroyed, nextExtra, carryMissiles, seconds: runT,
     hull: player.hull, shield: player.shield, missiles: player.missiles,
-    level: LEVEL.id,
+    level: LEVEL.id, ai: aiWings,
     // No flight: it is checkpointed at the top of a wave and the flight stands down at the end
     // of the one before, so there is never anybody on the wing at this moment.
     log: sortieLog,
@@ -3785,6 +3866,8 @@ function loadRun() {
 // an https page may not fetch http, and no browser offers a way round it.
 const API = ['sortiethegame.com', 'www.sortiethegame.com', '72.62.196.152', '127.0.0.1', 'localhost'].includes(location.hostname)
   ? '/api' : 'https://sortiethegame.com/api';
+let coopBoard = null;        // the co-op board, which ranks flights rather than pilots
+let flightId = null;         // this sortie's id, so four pilots posting it make one row
 let globalBoard = null;      // rows from the server, or null while unreachable
 let globalTried = false;
 let boardView = 'global';    // which one the title screen is showing
@@ -3810,6 +3893,38 @@ function runTelemetry(name, sc, wv, level) {
     localTime: new Date().toString().slice(0, 33),
   };
 }
+async function fetchCoop() {
+  try {
+    const res = await fetch(`${API}/coop?limit=${GLOBAL_KEEP}`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error(res.status);
+    const j = await res.json();
+    coopBoard = Array.isArray(j.board) ? j.board : null;
+  } catch { coopBoard = null; }
+  return coopBoard;
+}
+// Every pilot posts the same sortie. The server's flight id is unique, so the first one through
+// writes the row and the rest are told they are duplicates -- which is the point: a flight does
+// not lose its run because the pilot who happened to be hosting closed the tab first.
+async function postCoop(name, team, wv) {
+  if (!flightId) return { ok: false, why: 'no flight' };
+  const roster = [pilotName(), ...[...net.peers.values()].map((p) => p.callsign)].join(', ');
+  try {
+    const res = await fetch(`${API}/coop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...runTelemetry(name, team, wv, LEVEL.id),
+        flight: flightId, pilots: Math.max(2, flightSize()), roster,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, why: j.why || j.error || res.status };
+    coopBoard = Array.isArray(j.board) ? j.board : coopBoard;
+    return { ok: true, rank: j.rank, duplicate: !!j.duplicate };
+  } catch { return { ok: false, why: 'offline' }; }
+}
+
 async function postGlobal(name, sc, wv, level) {
   try {
     const res = await fetch(`${API}/scores`, {
@@ -3985,6 +4100,9 @@ function makeEnemy(type, pos, heading) {
     state: 'form', t: 0, fireCd: rand(1, 2.5), leader: null, slot: V(), peel: 5, evade: V(), breakUntil: 0,
     beamCd: rand(1, 3), beamT: 0, captive: null, flash: 0, dead: false, name: `${d.tag}-${tagCounter[type]}`,
     prey: null, wanderT: 0, humT: 0, flybyCd: 0, phase: rand(0, TAU),
+    // A network id, assigned here because this is the only place an enemy is born. `name` will
+    // not do: tagCounter wraps at nine, so two live drones can share one.
+    nid: ++nidSeq,
   };
   enemies.push(e);
   return e;
@@ -4191,6 +4309,10 @@ function enemyFire(e, aim, anyDirection = false) {
 
 function damageEnemy(e, dmg, credit, at, podMult) {
   if (e.dead) return;
+  // A guest does not get to decide that a Swarm ship is hurt: it reports the hit and the host
+  // applies it, or the two worlds drift apart within one wave. Believed rather than verified,
+  // which is what a relay can offer -- see the note at the top of server/multiplayer.js.
+  if (!hosting()) { net.send('hit_enemy', { nid: e.nid, dmg: Math.round(dmg) }); return; }
   if (e.type === 'boss') { damageBoss(e, dmg, credit, at, podMult); return; }
   e.hp -= dmg;
   e.flash = 0.1;
@@ -4204,10 +4326,15 @@ function damageEnemy(e, dmg, credit, at, podMult) {
 function killEnemy(e, credit) {
   if (e.dead) return;
   e.dead = true;
-  if (credit) {
-    addScore(e.state === 'form' ? e.d.ptsForm : e.d.pts);
-    kills++;
+  const pts = e.state === 'form' ? e.d.ptsForm : e.d.pts;
+  if (net.connected && net.host) {
+    const p = e.obj.position;
+    // `by` is who gets paid. When a guest's hit report finished the ship, creditTo names them
+    // and this message is the only way they will ever hear about it -- their own client never
+    // saw the ship die, because it does not run the Swarm.
+    net.send('enemy_dead', { nid: e.nid, p: [r2(p.x), r2(p.y), r2(p.z)], type: e.type, by: creditTo, pts });
   }
+  if (credit) { addScore(pts); kills++; }
   // What a wreck leaves behind, by how much trouble it was. A capital ship always drops two.
   const DROP = { drone: 0.05, lancer: 0.08, warden: 0.3, raider: 0.3, ace: 1, capital: 1, boss: 1 };
   const odds = DROP[e.type] ?? 0.05;
@@ -4339,13 +4466,16 @@ function dismissFlight() {
   let home = 0;
   for (const w of wings) {
     if (w.dead) continue;
+    // Assigned wingmen stay for the sortie. Only rescued pilots fly home to the Halcyon -- that
+    // is the whole point of rescuing one, and it is not what you chose a flight for.
+    if (w.standing) { w.hp = WING_HP; continue; }
     jumpFlash(w.obj.position);
     if (w.rescued) home++;
     scene.remove(w.obj);
     disposeObj(w.obj);
     w.dead = true;
   }
-  wings = [];
+  wings = wings.filter((w) => w.standing && !w.dead);
   if (!home) return;
   const before = lives;
   lives = Math.min(LIVES_MAX, lives + home);
@@ -4608,6 +4738,9 @@ function updateWingman(w, dt) {
   emitTrail(w, 0.35);
 }
 function damageWingman(w, dmg) {
+  // The host decides what happens to the flight, as it does for the Swarm. A guest watching its
+  // own copy take a hit would kill a wingman the others can still see.
+  if (!hosting()) return;
   w.hp -= dmg;
   if (w.hp > 0) return;
   w.dead = true;
@@ -4905,6 +5038,9 @@ function updateBolts(dt) {
     b.m.position.copy(b.pos);
     b.life -= dt;
     if (b.life <= 0) { b.dead = true; continue; }
+    // Someone else's shot: theirs to resolve, ours only to draw. Skipping every collision test
+    // is the whole of friendly fire being off, too -- a wingman's tracer cannot touch you.
+    if (b.owner === 'peer') continue;
     if (b.owner === 'enemy') {
       if (player.alive && player.inv <= 0 && segHit(b.prev, b.pos, player.rig.position, 3.4)) { b.dead = true; damagePlayer(b.dmg, b.prev); continue; }
       if (!b.whiz && player.alive && segHit(b.prev, b.pos, player.rig.position, 9)) { b.whiz = true; const p = panAt(b.pos); sfx.whiz(p, -p); }
@@ -5114,7 +5250,14 @@ function updatePlayer(dt, inp) {
     player.gunSide = -player.gunSide;
     _pg.set(player.gunSide * 1.0, 0.1, -2.6).applyQuaternion(player.rig.quaternion).add(player.rig.position);
     const aim = _pf.clone().multiplyScalar(250).add(player.rig.position);
-    spawnBolt(_pg, aim.sub(_pg).normalize(), BOLT_SPEED, 'player', 1);
+    const dir = aim.sub(_pg).normalize();
+    spawnBolt(_pg, dir, BOLT_SPEED, 'player', 1);
+    // The flight sees the shot. Only the tracer travels: each client resolves its own fire and
+    // nobody else's, so a replicated bolt is scenery. That is not a shortcut -- it is the only
+    // arrangement where two clients cannot both decide they killed the same ship.
+    if (net.connected) {
+      net.send('fire', { p: [r2(_pg.x), r2(_pg.y), r2(_pg.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
+    }
     shots++;
     sfx.laser(player.gunSide * 0.3);
   }
@@ -5189,7 +5332,10 @@ function loseShip(msg) {
   player.target = null;
   player.speed = 0;
   player.vel.set(0, 0, 0);
-  lives--;
+  // The fighters on the Halcyon are one pool, not one each. A guest says it lost a ship and
+  // the host does the arithmetic, so four pilots cannot each spend the same last fighter.
+  if (hosting()) { lives--; if (net.connected) net.send('lives', { n: lives }); }
+  else net.send('pilot_down', {});
   rumble(600, 1);
   comm('HALCYON', msg, 'warn');
   const lostLine = lives <= 0
@@ -5256,6 +5402,35 @@ const DIFFS = [
   { id: 'veteran', name: 'Veteran', sub: 'They shoot straighter',  bite: 1.45, rate: 1.25, ramp: 1.2,  score: 1.6 },
   { id: 'ace',     name: 'Ace',     sub: 'No allowances made',     bite: 1.9,  rate: 1.5,  ramp: 1.35, score: 2.4 },
 ];
+// Wingmen you are assigned rather than rescue. Three stations exist already -- Gold Two, Three
+// and Four -- so this fills them at launch instead of making you earn them.
+//
+// They discount the score, the same way difficulty does and for the same reason: three more
+// guns and three more things for the Swarm to shoot at is a real advantage, and a board that
+// ignored it would quietly stop comparing like with like. The cut is small per wingman, because
+// an AI wing is help, not a free pass -- they have 40 hull and no judgement.
+const WINGMEN = [
+  { n: 0, name: 'Alone',  sub: 'No wingmen',                       score: 1 },
+  { n: 1, name: 'One',    sub: 'Gold Two on your wing',            score: 0.93 },
+  { n: 2, name: 'Two',    sub: 'Gold Two and Gold Three',          score: 0.87 },
+  { n: 3, name: 'Flight', sub: 'A full flight of four',            score: 0.8 },
+];
+const WINGMEN_KEY = 'sortie.wingmen';
+let WINGS = WINGMEN[0];
+try { WINGS = WINGMEN.find((w) => w.n === Number(localStorage.getItem(WINGMEN_KEY))) || WINGMEN[0]; } catch { /* storage unavailable */ }
+function setWingmen(n) {
+  WINGS = WINGMEN.find((w) => w.n === Number(n)) || WINGMEN[0];
+  try { localStorage.setItem(WINGMEN_KEY, String(WINGS.n)); } catch { /* storage unavailable */ }
+  refreshWingmen();
+}
+// How many of them actually launched. In a flight the human pilots take the stations first, so
+// asking for three and flying with one other person gets you two.
+let aiWings = 0;
+const wingSeats = () => Math.max(0, WING_MAX - (flightSize() - 1));
+const wingMult = () => (WINGMEN.find((w) => w.n === aiWings) || WINGMEN[0]).score;
+// What a point is worth on this run: the difficulty you chose, less whatever help you took.
+const runMult = () => LEVEL.score * wingMult();
+
 const DIFF_KEY = 'sortie.difficulty';
 let LEVEL = DIFFS[1];
 function setLevel(id) {
@@ -5359,6 +5534,10 @@ function startWave(n) {
   holdout = null;
   clearField();
   const kind = waveKind(n);
+  // The wave itself is an event, not something a guest can infer from the snapshot: ships
+  // trickle in over twenty seconds, so a guest watching only the Swarm would see the banner
+  // whenever the first one happened to arrive.
+  if (net.connected && net.host) net.send('wave', { n, kind });
   if (kind === 'boss') {
     const bk = bossKind(n);
     if (bk === 'hive') spawnBoss(n);
@@ -5382,7 +5561,7 @@ function startWave(n) {
     // frequent top-ups, since hull and shields are restored at each wave start, so this buys
     // survivability as well as pace.
     const flights = [];
-    const drones = n === 1 ? 4 : 4 + Math.floor((n - 1) * 1.2);
+    const drones = coopScale(n === 1 ? 4 : 4 + Math.floor((n - 1) * 1.2));
     // Split into balanced flights rather than fours-then-remainder, which on the new smaller
     // counts left a flight of one: five drones used to arrive as 4 and then a single straggler
     // jumping in alone fourteen seconds later. Five now arrive as 3 and 2.
@@ -5390,8 +5569,8 @@ function startWave(n) {
     for (let i = 0; i < nf; i++) {
       flights.push(['drone', Math.round((drones * (i + 1)) / nf) - Math.round((drones * i) / nf)]);
     }
-    if (n >= 2) flights.push(['lancer', Math.min(5, 1 + Math.floor((n - 2) / 2))]);
-    if (n >= 3) flights.push(['warden', Math.min(3, 1 + Math.floor((n - 3) / 4))]);
+    if (n >= 2) flights.push(['lancer', coopScale(Math.min(5, 1 + Math.floor((n - 2) / 2)))]);
+    if (n >= 3) flights.push(['warden', coopScale(Math.min(3, 1 + Math.floor((n - 3) / 4)))]);
     flights.forEach(([type, count], i) => spawnQueue.push({ t: 2.5 + i * 7, type, count }));
     if (n >= 4 && Math.random() < 0.6) spawnQueue.push({ t: 20, type: 'raider' });
     if (n >= 2) spawnField(fieldSize(n, kind));
@@ -5445,12 +5624,21 @@ function waveComplete() {
 function updateFlow(dt) {
   waveT += dt;
   runT += dt;
-  while (spawnQueue.length && spawnQueue[0].t <= waveT) {
+  // Everything the Swarm does is the host's call. A guest still runs its own clock, its own
+  // death and respawn, and its own objectives -- those are about this pilot, not the wave.
+  const own = hosting();
+  while (own && spawnQueue.length && spawnQueue[0].t <= waveT) {
     const s = spawnQueue.shift();
     if (s.type === 'raider') spawnRaider(); else spawnFlight(s.type, s.count);
   }
   if (!player.alive && !player.capturing) {
-    if (lives <= 0) { overT -= dt; if (overT <= 0) gameOver(); }
+    if (lives <= 0) {
+      overT -= dt;
+      // An empty pool is not the end of the sortie while someone is still flying on the last
+      // fighter out. Only the host calls it, and only once nobody is left up -- a guest sitting
+      // dead with the pool empty waits to be told, or four pilots would end the run four times.
+      if (overT <= 0 && (!net.connected || (net.host && !flightFlying()))) gameOver();
+    }
     else {
       player.respawnT -= dt;
       if (player.respawnT <= 0) {
@@ -5463,15 +5651,15 @@ function updateFlow(dt) {
   if (waveActive) updateObjectives();
   if (holdout && waveActive) {
     holdout.t += dt;
-    if (!holdout.relieved) {
+    if (own && !holdout.relieved) {
       if (holdout.t >= holdout.need) relieve();
       else if (holdout.t >= holdout.nextAt) holdoutPush();
     }
   }
   // The field is scenery, so it never holds a wave open -- only the Swarm does. A hold-out is
   // not over until relief has arrived, however quiet it happens to go before then.
-  if (waveActive && !spawnQueue.length && !enemies.length && !(holdout && !holdout.relieved)) waveComplete();
-  if (nextWaveT >= 0) {
+  if (own && waveActive && !spawnQueue.length && !enemies.length && !(holdout && !holdout.relieved)) waveComplete();
+  if (own && nextWaveT >= 0) {
     nextWaveT -= dt;
     if (nextWaveT < 0) startWave(wave + 1);
   }
@@ -5479,6 +5667,399 @@ function updateFlow(dt) {
 }
 
 // ---------------------------------------------------------------- game flow
+// ---------------------------------------------------------------- the rest of the flight
+// Other human pilots. They are drawn like wingmen and fly like wingmen, but nothing in here
+// decides where they are: every position arrives off the wire, and net.sample() hands back
+// where a peer was 100ms ago so a 20 Hz feed can be drawn at 60 without stuttering.
+//
+// A peer is deliberately NOT a wingman. `wings` is AI, with hp, a formation slot and a fire
+// cooldown; a peer has none of those and must not be given fakes that the network then
+// overwrites. Two sources of truth for whether someone is alive is the bug that writes itself.
+const peers = new Map();   // id -> { id, peer, obj }
+
+function addPeer(p) {
+  if (peers.has(p.id)) return;
+  const obj = buildFriendly(false);
+  obj.visible = false;     // nothing to show until a snapshot has placed it
+  scene.add(obj);
+  peers.set(p.id, { id: p.id, peer: p, obj });
+}
+function dropPeer(id) {
+  const rec = peers.get(id);
+  if (!rec) return;
+  scene.remove(rec.obj);
+  disposeObj(rec.obj);
+  peers.delete(id);
+}
+function clearPeers() { for (const id of [...peers.keys()]) dropPeer(id); }
+
+function updatePeers() {
+  // net.peers is who exists; this map is only what is currently in the scene. Reconciling the
+  // two every frame means a disconnect, a reconnect and a sector change all need no handling.
+  for (const [id, p] of net.peers) if (!peers.has(id)) addPeer(p);
+  for (const id of [...peers.keys()]) if (!net.peers.has(id)) dropPeer(id);
+
+  for (const [, rec] of peers) {
+    const s = net.sample(rec.peer);
+    // A pilot who is down is aboard the Halcyon waiting on a fighter, not drifting in the
+    // fight. Hide the hull rather than leave a wreck flying in formation; the flight list
+    // still names them, which is the thing their wingmen actually need to know.
+    if (!s || rec.peer.dead) { rec.obj.visible = false; continue; }
+    rec.obj.position.set(s.pos[0], s.pos[1], s.pos[2]);
+    rec.obj.quaternion.set(s.rot[0], s.rot[1], s.rot[2], s.rot[3]);
+    rec.obj.visible = true;
+  }
+}
+
+// Joining a flight. The lobby is its own item; these two functions are the seam it will call,
+// and until then they are reachable from the URL -- ?flight=ABCD joins that sector, ?flight=new
+// opens a private one. That is not test scaffolding kept in by accident: an invite is a link,
+// and a link is the thing people actually send each other.
+function pilotName() {
+  try { return (localStorage.getItem('sortie.name') || '').toUpperCase() || 'GOLD'; }
+  catch { return 'GOLD'; }
+}
+async function joinFlight({ sector = null, create = null, callsign = null } = {}) {
+  const want = { callsign: callsign || pilotName(), ship: (FIGHTER && FIGHTER.id) || 'exec' };
+  if (create) want.create = create; else if (sector) want.sector = sector;
+  const joined = await net.connect(want);
+  if (!joined) {
+    comm('HALCYON', `Flight channel refused: ${net.error || 'no answer'}.`, 'friend');
+    return false;
+  }
+  comm('HALCYON', net.host
+    ? `You have the flight. Sector ${net.sector} -- send that code to your wing.`
+    : `Joined sector ${net.sector}. ${net.peers.size} other${net.peers.size === 1 ? '' : 's'} on station.`, 'friend');
+  return true;
+}
+function leaveFlight() {
+  net.close();
+  clearPeers();
+}
+// Said once, when someone arrives or goes, because the flight list on the HUD shows the state
+// and the radio should carry the change.
+net.on('player_joined', (m) => {
+  comm('HALCYON', `${m.player.callsign} is on station.`, 'friend');
+  // Catch them up. The wave is an event, so a pilot who arrives mid-sortie would otherwise sit
+  // at WAVE 0 with no objectives while ships they cannot account for fly past them -- the
+  // Swarm snapshot says where everything is and nothing at all about what is going on.
+  if (net.host && waveActive) net.send('wave', { n: wave, kind: waveKind(wave) });
+});
+net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+// The panel is only right while it is open, so it is only redrawn then.
+for (const t of ['player_joined', 'player_left', 'status', 'role']) {
+  net.on(t, () => { if (view === 'flight') refreshFlight(); });
+}
+// Another pilot's tracer. BOLT_SPEED without their velocity added -- the bolt they see has it
+// and this one will not match theirs exactly, but it is scenery either way, and a tracer that
+// matches the direction they fired reads correctly from any angle.
+net.on('fire', (m) => {
+  if (!Array.isArray(m.p) || !Array.isArray(m.d)) return;
+  _gp.set(m.p[0], m.p[1], m.p[2]);
+  _gd.set(m.d[0], m.d[1], m.d[2]);
+  if (_gd.lengthSq() < 0.5) return;
+  spawnBolt(_gp, _gd.normalize(), BOLT_SPEED, 'peer', 0);
+});
+
+// A guest's shots land on the host's copy of the Swarm, which is the only copy that counts.
+// Clamped, because the number arrives from a browser; believed, because this is a relay and
+// the people in your sector are people you invited.
+//
+// Credit is deliberately withheld here: awarding it to the host would hand them every guest's
+// kills, and awarding it properly means paying the pilot who reported the hit, which needs a
+// message back. That is the scoring item, not this one.
+// The pool, kept by whoever is hosting. A guest never touches `lives` itself: it reports a
+// loss and takes the number back, which is the only way the count stays one count.
+net.on('pilot_down', (m) => {
+  if (!net.host) return;
+  lives--;
+  net.send('lives', { n: lives });
+  // overT idles at -1, so Math.min would have started the countdown already expired and ended
+  // the sortie the instant the pool emptied.
+  if (lives <= 0 && overT < 0) overT = 3.5;
+});
+net.on('lives', (m) => {
+  if (net.host) return;
+  lives = Math.max(0, Math.round(Number(m.n) || 0));
+});
+
+net.on('hit_enemy', (m) => {
+  if (!net.host) return;
+  const e = enemies.find((x) => x.nid === m.nid && !x.dead);
+  // A report naming a ship this host does not have is normal in flight -- it died in the time
+  // the report was in the air -- but a flood of them means the two worlds have come apart,
+  // which is worth being able to see rather than guess at.
+  if (!e) { console.warn('hit report miss: nid', JSON.stringify(m.nid), typeof m.nid, 'have:', enemies.map((x) => `${JSON.stringify(x.nid)}${x.dead ? '(dead)' : ''}`).join(',')); return; }
+  // Who to pay if this is the shot that finishes it. Set around the call and cleared after,
+  // because killEnemy can run several frames of consequences deep and reads it on the way.
+  creditTo = m.from || null;
+  damageEnemy(e, clamp(Number(m.dmg) || 0, 1, 400), false);
+  creditTo = null;
+});
+
+// A guest takes the wave from the host rather than deciding it. Objectives are rebuilt locally
+// from the same two numbers, so both pilots see the same goals without those being on the wire.
+// Coming back from a drop as a guest when we left as the host. The sortie was running in this
+// browser and is not any more -- the sector was rebuilt, or someone else took it. Say so and
+// end it, because the alternative is a pilot flying in a world nothing is simulating.
+net.on('role', (m) => {
+  if (m.host || !m.was) return;
+  comm('HALCYON', 'Lost the flight channel. Another lead has the sector.', 'enemy');
+  if (state === 'play') gameOver();
+});
+net.on('field', (m) => { if (!net.host) applyField(m.f); });
+net.on('wave', (m) => {
+  if (net.host) return;
+  wave = m.n;
+  waveT = 0;
+  waveActive = true;
+  nextWaveT = -1;
+  waveMark = { kills, rocks: rocksDestroyed, hull: player.hull, t: runT };
+  objectives = buildObjectives(m.n, m.kind);
+  showBanner(`WAVE ${m.n}`, m.n === 1 ? 'Swarm interceptors inbound' : 'Swarm strike group inbound');
+  voice.say([waveClip(m.n), m.n === 1 ? 'scan-1' : 'scan-2', 'scan-3'], { key: 'wave', cooldown: 2 });
+});
+// The bang. The ship is already gone from the next snapshot either way; this is only so a kill
+// looks like a kill rather than a ship blinking out.
+net.on('enemy_dead', (m) => {
+  if (net.host) return;
+  // Paid for a kill this client never watched happen.
+  if (m.by && net.self && m.by === net.self.id) { addScore(Number(m.pts) || 0); kills++; }
+  const d = SHIPS[m.type];
+  _gp.set(m.p[0], m.p[1], m.p[2]);
+  // explode() already makes the noise, with the right distance falloff; calling sfx.boom here
+  // as well would double every kill a guest hears.
+  explode(_gp, d ? d.color : 0xff8844, d ? d.r / 3.2 : 1, m.type === 'warden' || m.type === 'boss');
+});
+net.on('run_end', (m) => {
+  if (m.reason === 'lost') {
+    // The pool is empty and the last of the flight is down. The host has already called it.
+    if (!net.host && state === 'play') gameOver();
+    return;
+  }
+  if (m.reason !== 'host_left') return;
+  comm('HALCYON', 'Flight lead has jumped out. Sortie scrubbed.', 'enemy');
+  clearPeers();
+});
+
+// ---------------------------------------------------------------- who owns the Swarm
+// One browser simulates the enemies and tells the others where they are. Which browser is
+// decided by the relay -- the first pilot into a sector hosts it -- and `hosting()` is the
+// single question every authority decision asks.
+//
+// The important property is the degenerate case: **solo play is hosting with nobody watching.**
+// Not connected means hosting, so every path below runs exactly as it always has when there is
+// no socket, and co-op is the same game with an audience rather than a second mode to keep in
+// step with the first.
+let nidSeq = 0;
+let creditTo = null;   // the pilot to pay for the kill currently being resolved
+const hosting = () => !net.connected || net.host;
+
+// Round on the way out. Two decimals is a centimetre at this scale and three is finer than any
+// rotation anyone can see; at 28 ships twenty times a second the digits are most of the packet.
+const r2 = (n) => Math.round(n * 100) / 100;
+const r3 = (n) => Math.round(n * 1000) / 1000;
+function sendSwarm() {
+  if (!net.connected || !net.host) return;
+  const rows = [];
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const p = e.obj.position, q = e.obj.quaternion;
+    rows.push([e.nid, e.type, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w),
+      Math.round(e.hp), e.state]);
+  }
+  // The wingmen go with them, keyed by station rather than by an id: there are only three and
+  // the station is already what names them.
+  const mates = [];
+  for (const w of wings) {
+    if (w.dead) continue;
+    const p = w.obj.position, q = w.obj.quaternion;
+    mates.push([w.slot, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), Math.round(w.hp)]);
+  }
+  net.sendFoes(rows, mates);
+}
+
+// A guest's copy of the host's flight. Built through spawnWingman so they are real entries --
+// the HUD tally, the radar and enemy fire all read `wings` and none of them need to know.
+function updateMates() {
+  for (const [slot, m] of net.mates) {
+    let w = wings.find((x) => x.slot === slot);
+    if (!w) {
+      const s0 = m.track.buf[0];
+      _gp.set(s0.pos[0], s0.pos[1], s0.pos[2]);
+      w = spawnWingman(_gp, true, slot);
+      if (!w) continue;
+      w.mirror = true;
+    }
+    w.hp = m.hp;
+    const sm = net.sample(m);
+    if (!sm) continue;
+    w.obj.position.set(sm.pos[0], sm.pos[1], sm.pos[2]);
+    w.obj.quaternion.set(sm.rot[0], sm.rot[1], sm.rot[2], sm.rot[3]);
+    w.heading.copy(w.obj.quaternion);
+  }
+  for (const w of wings) {
+    if (!w.mirror || net.mates.has(w.slot)) continue;
+    w.dead = true;
+    scene.remove(w.obj);
+    disposeObj(w.obj);
+  }
+}
+
+// What a guest does instead of running the AI. The enemies array is the real one -- targeting,
+// the radar, bolt collision, the lead pip and the lock tone all read it and none of them need
+// to know the difference -- so a guest builds genuine enemies through makeEnemy() and then
+// never thinks for them again.
+function updateSwarm() {
+  const live = new Map();
+  for (const e of enemies) if (e.nid) live.set(e.nid, e);
+
+  for (const [nid, f] of net.foes) {
+    let e = live.get(nid);
+    if (!e) {
+      if (!SHIPS[f.type]) continue;               // a type this build does not have; skip it
+      const s0 = f.track.buf[0];
+      _gp.set(s0.pos[0], s0.pos[1], s0.pos[2]);
+      _gq.set(s0.rot[0], s0.rot[1], s0.rot[2], s0.rot[3]);
+      e = makeEnemy(f.type, _gp, _gq);
+      e.nid = nid;                                 // the host's id wins; ours was a local guess
+      e.mirror = true;                             // built from the wire, so safe to prune by it
+    }
+    e.hp = f.hp;
+    e.state = f.st;
+    const s = net.sample(f);
+    if (!s) continue;
+    e.obj.position.set(s.pos[0], s.pos[1], s.pos[2]);
+    e.obj.quaternion.set(s.rot[0], s.rot[1], s.rot[2], s.rot[3]);
+    e.heading.copy(e.obj.quaternion);
+  }
+
+  // Gone from the host's snapshot means gone. A ship that the death event missed vanishes
+  // quietly rather than living for ever, which is the right way round: a lost bang is a
+  // cosmetic fault, a ship only one player can see is a broken sortie.
+  // Only ships that came off the wire are pruned by it. A ship this client built itself is
+  // not the host's to remove, and the version that pruned every enemy wiped a whole wave the
+  // moment a reconnect turned the host into a guest.
+  for (const e of enemies) if (e.mirror && !net.foes.has(e.nid)) { e.dead = true; scene.remove(e.obj); disposeObj(e.obj); }
+  if (player.target && player.target.dead) player.target = null;
+}
+const _gp = V(), _gd = V(), _gq = new THREE.Quaternion();
+
+// ---------------------------------------------------------------- the lobby
+// No text field anywhere, which is deliberate rather than an omission. This game has never had
+// an <input> -- the arcade initials are a wheel driven by keys -- and on a phone a text field
+// summons the soft keyboard over the top of a game that has just gone full screen. So the
+// callsign is the three initials the player already has, and the sector code gets the same
+// wheel the initials use, which works from a keyboard, a thumb or a gamepad without one.
+// How many pilots are in this sortie, this client included. One when nobody is connected,
+// which keeps every number below identical to solo play.
+const flightSize = () => (net.status === 'open' && net.sector ? net.peers.size + 1 : 1);
+
+// Co-op balance, and both of these are starting values that want playtesting rather than
+// arithmetic. They are named and sit together for exactly that reason.
+//
+// Ships scale sub-linearly: four pilots are better than four times one, because they share
+// targets and arrive together, but they are also sharing one pool of fighters, so a linear
+// ramp on top of that was likely to be punishing rather than hard.
+const COOP_SHIPS_PER_PILOT = 0.7;
+const coopScale = (n) => Math.max(1, Math.round(n * (1 + COOP_SHIPS_PER_PILOT * (flightSize() - 1))));
+// And the pool grows by one fighter per extra pilot. Three between four pilots would end most
+// sorties inside two waves; this keeps roughly the solo allowance each while the pool itself
+// stays shared, which is the part that makes a flight watch out for each other.
+const COOP_LIVES_PER_PILOT = 1;
+
+const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // matches the relay: no O/0, no I/1
+const codeAt = [0, 0, 0, 0];
+let codeCur = 0, lobbyTimer = null, lobbyRows = [];
+
+const codeText = () => codeAt.map((i) => CODE_ALPHA[i]).join('');
+function drawCode() {
+  $('flightCode').innerHTML = codeAt.map((i, n) => `<div class="slot ${n === codeCur ? 'on' : ''}" data-cslot="${n}">
+    <button class="spin" type="button" data-cspin="${n}:1" aria-label="Previous character">&#9650;</button>
+    <div class="ch">${CODE_ALPHA[i]}</div>
+    <button class="spin" type="button" data-cspin="${n}:-1" aria-label="Next character">&#9660;</button>
+  </div>`).join('') + '<button class="launch ghost" type="button" id="codeGo">Join</button>';
+}
+function spinCode(n, d) {
+  codeAt[n] = (codeAt[n] + d + CODE_ALPHA.length) % CODE_ALPHA.length;
+  codeCur = n;
+  drawCode();
+}
+// Typing sets the current slot and walks on, which is what anyone reading a code aloud expects.
+function typeCode(ch) {
+  const i = CODE_ALPHA.indexOf(ch.toUpperCase());
+  if (i < 0) return false;
+  codeAt[codeCur] = i;
+  codeCur = Math.min(3, codeCur + 1);
+  drawCode();
+  return true;
+}
+
+async function loadLobbies() {
+  try {
+    const r = await fetch(`${API}/lobbies`, { cache: 'no-store' });
+    lobbyRows = (await r.json()).lobbies || [];
+  } catch { lobbyRows = []; }
+  drawLobbies();
+}
+function drawLobbies() {
+  const box = $('flightList');
+  const mine = net.sector;
+  const open = lobbyRows.filter((l) => l.sector !== mine && l.pilots < l.max);
+  if (!open.length) {
+    box.innerHTML = '<p class="sub">Nobody is waiting. Quick match opens one for you.</p>';
+    return;
+  }
+  box.innerHTML = open.map((l) =>
+    `<button class="diffopt" type="button" data-join="${l.sector}">${l.sector} · ${l.pilots} of ${l.max}</button>`).join('');
+}
+
+// What happens to the seats nobody took. Said here because this is where someone is deciding
+// whether to wait for a friend or just go.
+function fillNote(pilots) {
+  const free = Math.max(0, 4 - pilots);
+  if (!free) return '';
+  const ai = Math.min(WINGS.n, free);
+  return ai
+    ? ` The flight lead's ${ai} AI wingm${ai === 1 ? 'an' : 'en'} will take the rest.`
+    : ` ${free} station${free === 1 ? '' : 's'} free — set Wingmen on the title to fill them with AI.`;
+}
+function refreshFlight() {
+  const inFlight = net.status === 'open' && net.sector;
+  $('flightNow').hidden = !inFlight;
+  $('flightJoin').hidden = inFlight;
+  $('flightOpen').hidden = inFlight;
+  $('flightByCode').hidden = inFlight;
+  if (inFlight) {
+    $('flightSector').textContent = `Sector ${net.sector}${net.private ? ' · private' : ''} · you are ${net.host ? 'flight lead' : 'on the wing'}`;
+    const others = [...net.peers.values()].map((p) => p.callsign);
+    $('flightRoster').textContent = others.length
+      ? `${pilotName()} (you), ${others.join(', ')} — ${others.length + 1} of 4.${fillNote(others.length + 1)}`
+      : `${pilotName()} (you). Send anyone the code ${net.sector} and they can join.${fillNote(1)}`;
+  } else {
+    // Cleared, not merely hidden. The panel is shown again on the next join, and the version
+    // that left the old text in place greeted a pilot with the sector they had just left.
+    $('flightSector').textContent = '';
+    $('flightRoster').textContent = '';
+    if (net.status === 'connecting' || net.status === 'reconnecting') {
+      $('flightHint').textContent = 'Opening the flight channel…';
+    } else if (net.error) {
+      $('flightHint').textContent = `The flight channel said: ${net.error}.`;
+    }
+  }
+  drawLobbies();
+}
+// Polled only while the view is open. A lobby list that refreshes behind a closed page is a
+// request every few seconds for something nobody is looking at.
+function flightViewOpened() {
+  drawCode();
+  refreshFlight();
+  loadLobbies();
+  clearInterval(lobbyTimer);
+  lobbyTimer = setInterval(loadLobbies, 5000);
+}
+function flightViewClosed() { clearInterval(lobbyTimer); lobbyTimer = null; }
+
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
   for (const b of bolts) scene.remove(b.m);
@@ -5487,6 +6068,9 @@ function clearWorld() {
   for (const m of mines) { scene.remove(m.obj); disposeObj(m.obj); }
   for (const p of pickups) { scene.remove(p.obj); disposeObj(p.obj); }
   for (const w of wings) { scene.remove(w.obj); disposeObj(w.obj); }
+  // Peers are reconciled against net.peers every frame, but that only runs while a sortie is
+  // in progress -- without this, leaving to the title would strand their ships in the scene.
+  clearPeers();
   enemies = []; bolts = []; missiles = []; rocks = []; rockSpawns.length = 0; wings = [];
   mines = []; pickups = [];
   spawnQueue = []; comms = []; holdout = null;
@@ -5499,10 +6083,26 @@ function startGame() {
   fullscreenOnLaunch();
   dropKey(SAVE_KEY);
   clearWorld();
-  score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  score = 0; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  // One id for the sortie, so whichever pilots post it end up as one row rather than four.
+  flightId = net.status === 'open' && net.sector ? `${net.sector}-${Date.now().toString(36)}` : null;
+  lives = 3 + COOP_LIVES_PER_PILOT * (flightSize() - 1);
+  if (net.connected && net.host) net.send('lives', { n: lives });
   objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0; runT = 0;
   resetPlayer();
   player.missiles = 6;
+  // The assigned flight. Only the host spawns them in co-op -- they are replicated from there,
+  // the same as the Swarm, so everyone sees one flight rather than one each.
+  aiWings = 0;
+  if (hosting()) {
+    const want = Math.min(WINGS.n, wingSeats());
+    for (let i = 0; i < want; i++) {
+      const at = LAUNCH_POS.clone().add(V(rand(-30, 30), rand(-8, 14), rand(10, 50)));
+      const w = spawnWingman(at, true);
+      if (w) { w.standing = true; aiWings++; }
+    }
+    if (aiWings) comm('HALCYON', `Gold flight is with you: ${wings.map((w) => w.label).join(', ')}.`, 'friend');
+  }
   state = 'play';
   paused = false;
   waveActive = false;
@@ -5524,6 +6124,7 @@ function startGame() {
 function continueGame(r) {
   audioUnlock();
   setLevel(r.level || 'normal');
+  aiWings = r.ai | 0;
   closeEntry();
   fullscreenOnLaunch();
   clearWorld();
@@ -5538,6 +6139,17 @@ function continueGame(r) {
   player.hull = clamp(Number.isFinite(r.hull) ? r.hull : 100, 1, 100);
   player.shield = clamp(Number.isFinite(r.shield) ? r.shield : 100, 0, 100);
   player.missiles = clamp(r.missiles | 0, 0, 12);
+  // The flight comes back with the run. Without this a resumed sortie kept the score discount
+  // and flew it alone, which is the worst of both.
+  const back = Math.min(aiWings, wingSeats());
+  aiWings = 0;
+  if (hosting()) {
+    for (let i = 0; i < back; i++) {
+      const at = LAUNCH_POS.clone().add(V(rand(-30, 30), rand(-8, 14), rand(10, 50)));
+      const w = spawnWingman(at, true);
+      if (w) { w.standing = true; aiWings++; }
+    }
+  }
   state = 'play';
   paused = false;
   waveActive = false;
@@ -5590,7 +6202,7 @@ function renderBoard(el, mine = -1, rows = null, opts = {}) {
     ? '<tr class="gap"><td class="r">⋯</td><td class="nm"></td><td class="sc"></td><td class="wv"></td></tr>'
     : `<tr class="${x.i === mine ? 'you' : ''}">
       <td class="r">${x.i + 1}</td><td class="nm">${esc(x.r.name)}</td>
-      <td class="sc">${(x.r.score | 0).toLocaleString()}</td><td class="wv">W${x.r.wave | 0}</td></tr>`)).join('');
+      <td class="sc">${(x.r.score | 0).toLocaleString()}</td><td class="wv">W${x.r.wave | 0}${opts.pilots && x.r.pilots ? ` · ${x.r.pilots}p` : ''}</td></tr>`)).join('');
   return b.length;
 }
 // A hundred rows will not fit on a debrief card, and the rows that matter are the very top and
@@ -5693,7 +6305,21 @@ function confirmEntry() {
   });
 }
 
+// Is anyone from the flight still in the fight? Their own `dead` flag, self-reported on state,
+// which in co-op is the only party that knows.
+function flightFlying() {
+  for (const [, p] of net.peers) if (!p.dead) return true;
+  return false;
+}
+// What the flight scored between them. Each pilot reports their own running total on `state`,
+// which in co-op is the only party that knows it.
+function teamScore() {
+  let t = Math.round(score * runMult());
+  for (const [, p] of net.peers) t += Math.round((p.score || 0) * runMult());
+  return t;
+}
 function gameOver() {
+  if (net.connected && net.host) net.send('run_end', { reason: 'lost' });
   state = 'over';
   cockpit.visible = false;
   ping('end', { ended: 'dead', deaths: 1 });
@@ -5704,8 +6330,15 @@ function gameOver() {
   const ratio = shots ? (hits / shots) * 100 : 0;
   // What the run is worth once the level is taken into account, so one board can rank runs
   // flown at different settings against each other.
-  const finalScore = Math.round(score * LEVEL.score);
+  const finalScore = Math.round(score * runMult());
   $('dScore').textContent = finalScore.toLocaleString();
+  // In a flight, your own score is still yours -- it is what you shot -- and the total is what
+  // the board will rank. Showing only the total would hide which of you had the sortie.
+  const coop = !!flightId;
+  const team = coop ? teamScore() : 0;
+  $('dTeamK').hidden = !coop;
+  $('dTeam').hidden = !coop;
+  if (coop) $('dTeam').textContent = `${team.toLocaleString()} · ${Math.max(2, flightSize())} pilots`;
   $('dWaves').textContent = String(Math.max(0, wave - (waveActive ? 1 : 0)));
   $('dKills').textContent = String(kills);
   $('dRocks').textContent = String(rocksDestroyed);
@@ -5723,16 +6356,32 @@ function gameOver() {
     <td><span class="sw" style="--c: ${r.perfect ? 'var(--green)' : 'var(--dim)'}"></span>Wave ${r.wave}<span class="tag">${KIND[r.kind]} · ${r.time.toFixed(0)}s · ${r.met}/${r.total} objectives</span></td>
     <td class="n">${(r.earned + r.bonus).toLocaleString()}${r.bonus ? `<span class="tag">+${r.bonus.toLocaleString()} bonus</span>` : ''}</td></tr>`).join('');
   $('dLogPanel').hidden = sortieLog.length === 0;
-  $('dRank').textContent = (score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer') + (LEVEL.score !== 1 ? ` · ${score.toLocaleString()} x ${LEVEL.score} ${LEVEL.name}` : '');
+  $('dRank').textContent = (score >= 60000 ? 'Rank: Squadron Ace' : score >= 25000 ? 'Rank: Ace' : score >= 8000 ? 'Rank: Flight Lieutenant' : 'Rank: Flight Officer') + (runMult() !== 1
+    ? ` · ${score.toLocaleString()} x ${(+runMult().toFixed(2))}${LEVEL.score !== 1 ? ' ' + LEVEL.name : ''}${aiWings ? ` · ${aiWings} wingmen` : ''}`
+    : '');
   // Name entry first if the score earned it; the board goes up either way, once there is one.
   closeEntry();
   const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
   // Either board is reason enough to ask for a name: a score can miss this browser's top twenty
   // and still make the global one, and the reverse is just as likely on a shared machine.
-  if (boardRank(finalScore) >= 0 || globalRank(finalScore) >= 0) openEntry(finalScore, wavesFlown);
-  const showGlobal = globalBoard && globalBoard.length;
-  $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
-  $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
+  if (!coop && (boardRank(finalScore) >= 0 || globalRank(finalScore) >= 0)) openEntry(finalScore, wavesFlown);
+  if (coop) {
+    // A flight's run goes to the flight board, and nowhere near the solo one: four guns on one
+    // wave make a kill cheaper, and keeping one board that means something was the whole point
+    // of the difficulty multiplier.
+    $('dBoardWhich').textContent = 'Co-op flights · sending…';
+    $('dBoardPanel').hidden = false;
+    postCoop(pilotName(), team, wavesFlown).then((out) => {
+      renderBoard($('dBoard'), -1, coopBoard, { window: true, pilots: true });
+      $('dBoardWhich').textContent = out.ok
+        ? `Co-op flights · your flight is #${out.rank}${out.duplicate ? ' (already posted by a wingman)' : ''}`
+        : `Co-op flights · the board refused the run (${out.why})`;
+    });
+  } else {
+    const showGlobal = globalBoard && globalBoard.length;
+    $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
+    $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
+  }
   $('over').hidden = false;
   overShown = performance.now();
 }
@@ -5839,10 +6488,22 @@ document.addEventListener('fullscreenchange', () => {
   if (!isFullscreen()) fsDeclined = true;
   refreshFullscreenBtn();
 });
+// Two buttons, one state. The pause one was there first; the title one exists because pressing
+// Launch already goes full screen, which is no help to someone who has not pressed it yet and
+// is reading the board with an address bar over the top of it. Both are hidden where they
+// cannot work -- installed from the home screen, where there is no chrome to lose, and iPhone
+// Safari, which has no Fullscreen API for anything but a video element (WebKit bug 206854 is
+// still open; iPad has had it since Safari 16.4). The install panel is the answer there, and
+// says so.
 function refreshFullscreenBtn() {
-  const b = $('pauseFull');
-  b.hidden = !canFullscreen || isStandalone();
-  b.textContent = isFullscreen() ? 'Leave full screen' : 'Full screen';
+  const label = isFullscreen() ? 'Leave full screen' : 'Full screen';
+  const off = !canFullscreen || isStandalone();
+  for (const id of ['pauseFull', 'titleFull']) {
+    const b = $(id);
+    if (!b) continue;
+    b.hidden = off;
+    b.textContent = label;
+  }
 }
 
 // Chrome and Edge hand us the install prompt to fire ourselves; everyone else needs telling how.
@@ -5900,10 +6561,12 @@ function openView(name, { hash = true } = {}) {
   $(viewFrom).hidden = true;
   if (hash && location.hash !== '#' + name) history.pushState(null, '', '#' + name);
   $(name).scrollTop = 0;
+  if (name === 'flight') flightViewOpened(); else flightViewClosed();
 }
 function closeView({ hash = true } = {}) {
   if (!view) return;
   for (const v of VIEWS) $(v).hidden = true;
+  flightViewClosed();
   view = null;
   $(viewFrom).hidden = false;
   if (hash && location.hash) history.pushState(null, '', location.pathname + location.search);
@@ -5940,6 +6603,7 @@ function refreshTitle() {
   // Asked for once per visit to the title, not per frame: a board that is a few minutes stale is
   // not worth a request every time the screen is redrawn.
   fetchGlobal().then(drawTitleBoard);
+  fetchCoop().then(drawTitleBoard);
   const r = loadRun();
   const cont = $('continueBtn');
   cont.hidden = !r;
@@ -5949,21 +6613,43 @@ function refreshTitle() {
     ? 'Enter or A continues · N or X starts a new sortie'
     : 'Enter · controller Start or A';
   refreshDifficulty();
+  refreshWingmen();
   refreshFighter();
+  refreshFullscreenBtn();
   drawTitleBoard();
+}
+// The next source worth offering, skipping any that is empty. Returning the current one means
+// there is nothing to swap to, and the button hides itself.
+function nextBoardView() {
+  const have = { local: true, global: !!(globalBoard && globalBoard.length), coop: !!(coopBoard && coopBoard.length) };
+  const order = ['global', 'coop', 'local'];
+  const at = order.indexOf(boardView);
+  for (let i = 1; i <= order.length; i++) {
+    const v = order[(at + i) % order.length];
+    if (have[v]) return v;
+  }
+  return boardView;
 }
 function drawTitleBoard() {
   refreshInstall();
-  const useGlobal = boardView === 'global' && globalBoard && globalBoard.length;
-  const rows = useGlobal ? globalBoard : loadBoard();
-  const n = renderBoard($('tBoard'), -1, rows, { limit: BOARD_SHOW });
+  // Three sources now, and the button walks round them. Co-op is a separate board rather than
+  // a filter: a flight's kills are cheaper than a lone pilot's, so the two do not compare.
+  const haveGlobal = !!(globalBoard && globalBoard.length);
+  const haveCoop = !!(coopBoard && coopBoard.length);
+  if (boardView === 'global' && !haveGlobal) boardView = 'local';
+  if (boardView === 'coop' && !haveCoop) boardView = haveGlobal ? 'global' : 'local';
+  const rows = boardView === 'global' ? globalBoard : boardView === 'coop' ? coopBoard : loadBoard();
+  const n = renderBoard($('tBoard'), -1, rows, { limit: BOARD_SHOW, pilots: boardView === 'coop' });
   $('tBoardPanel').hidden = n === 0 && boardView === 'local';
   const deep = n > BOARD_SHOW ? ` · top ${BOARD_SHOW} of ${n}` : '';
-  $('tBoardWhich').textContent = useGlobal ? `Global${deep}`
+  $('tBoardWhich').textContent = boardView === 'global' ? `Global${deep}`
+    : boardView === 'coop' ? `Co-op flights${deep}`
     : globalBoard === null && globalTried ? 'This browser · the global board is unreachable'
     : `This browser${deep}`;
-  $('tBoardSwap').hidden = !(globalBoard && globalBoard.length);
-  $('tBoardSwap').textContent = useGlobal ? 'Show this browser' : 'Show global';
+  const next = nextBoardView();
+  $('tBoardSwap').hidden = next === boardView;
+  $('tBoardSwap').textContent = next === 'global' ? 'Show global'
+    : next === 'coop' ? 'Show co-op' : 'Show this browser';
   if (n === 0) $('tBoard').innerHTML = '<tr><td class="r"></td><td class="nm">—</td><td class="sc">no scores yet</td><td class="wv"></td></tr>';
   resetBoardScroll();
 }
@@ -6052,6 +6738,20 @@ function setFighter(id) {
   if (MODELS.striker) usePlayerModel();
   refreshFighter();
 }
+function refreshWingmen() {
+  const r = loadRun();
+  const shown = r ? (WINGMEN.find((w) => w.n === (r.ai | 0)) || WINGMEN[0]) : WINGS;
+  const seats = wingSeats();
+  $('wingLever').innerHTML = WINGMEN.map((w) =>
+    `<button class="diffopt ${w.n === shown.n ? 'on' : ''}" type="button" data-wing="${w.n}"${r ? ' disabled' : ''}>${w.name}</button>`).join('');
+  // Three notes, because three different things can be true: a run is in progress and the
+  // choice is locked, a flight has taken the stations, or it is just you and the number stands.
+  $('wingNote').textContent = r
+    ? `${shown.name} · locked until this run ends`
+    : shown.n > seats
+      ? `${shown.sub} · only ${seats} station${seats === 1 ? '' : 's'} free, the rest are pilots`
+      : `${shown.sub} · scores count for ${shown.score}x`;
+}
 function refreshFighter() {
   $('shipLever').innerHTML = FIGHTERS.map((f) =>
     `<button class="diffopt ${f.id === FIGHTER.id ? 'on' : ''}" type="button" data-ship="${f.id}">${f.name}</button>`).join('');
@@ -6137,6 +6837,16 @@ window.addEventListener('keydown', (e) => {
       if (at >= 0) { entry.at[entry.cur] = at; if (entry.cur < 2) entry.cur++; drawEntry(); sfx.comm(); }
     }
     return;
+  }
+  // The code wheel takes letters and arrows before the view swallows them. Everything it does
+  // not claim falls through to the modal behaviour below, so Escape still backs out.
+  if (view === 'flight') {
+    if (e.key && e.key.length === 1 && typeCode(e.key)) return;
+    if (e.code === 'ArrowLeft') { codeCur = Math.max(0, codeCur - 1); return drawCode(); }
+    if (e.code === 'ArrowRight') { codeCur = Math.min(3, codeCur + 1); return drawCode(); }
+    if (e.code === 'ArrowUp') return spinCode(codeCur, 1);
+    if (e.code === 'ArrowDown') return spinCode(codeCur, -1);
+    if (e.code === 'Backspace') { codeCur = Math.max(0, codeCur - 1); return drawCode(); }
   }
   // A reading view is modal: it owns Escape and swallows the keys that would otherwise launch.
   if (view) {
@@ -6300,13 +7010,27 @@ $('diffLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-diff]');
   if (b) setLevel(b.dataset.diff);
 });
+$('wingLever').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wing]');
+  if (b) setWingmen(b.dataset.wing);
+});
 $('shipLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ship]');
   if (b) setFighter(b.dataset.ship);
 });
-$('tBoardSwap').addEventListener('click', () => {
-  boardView = boardView === 'global' ? 'local' : 'global';
-  drawTitleBoard();
+$('tBoardSwap').addEventListener('click', () => { boardView = nextBoardView(); drawTitleBoard(); });
+$('flightBack').addEventListener('click', () => closeView());
+// Delegated, so redrawing the wheel or the lobby list never loses its own controls.
+$('flight').addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-cspin], [data-cslot], [data-join], #codeGo, #flightQuick, #flightNew, #flightLeave');
+  if (!t) return;
+  if (t.dataset.cspin) { const [n, d] = t.dataset.cspin.split(':'); return spinCode(+n, +d); }
+  if (t.dataset.cslot !== undefined) { codeCur = +t.dataset.cslot; return drawCode(); }
+  if (t.dataset.join) { await joinFlight({ sector: t.dataset.join }); return refreshFlight(); }
+  if (t.id === 'codeGo') { await joinFlight({ sector: codeText() }); return refreshFlight(); }
+  if (t.id === 'flightQuick') { await joinFlight({}); return refreshFlight(); }
+  if (t.id === 'flightNew') { await joinFlight({ create: 'private' }); return refreshFlight(); }
+  if (t.id === 'flightLeave') { leaveFlight(); return refreshFlight(); }
 });
 $('controlsBack').addEventListener('click', () => closeView());
 $('aboutBack').addEventListener('click', () => closeView());
@@ -6334,6 +7058,7 @@ $('againBtn').addEventListener('click', () => { if (state === 'over') leaveDebri
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 $('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
 $('pauseFull').addEventListener('click', () => toggleFullscreen());
+$('titleFull').addEventListener('click', () => toggleFullscreen());
 $('installBtn').addEventListener('click', async () => {
   if (!installPrompt) return;
   const p = installPrompt;
@@ -6733,6 +7458,17 @@ function drawHud() {
     let wy = isTouch ? 98 : 96;
     for (const w of wings) { c.fillText(`${w.name} ${Math.round((w.hp / WING_HP) * 100)}%`, tally, wy); wy += 13; }
   }
+  // The people, under the AI. A pilot who is down still gets a line: knowing a wing is waiting
+  // on a fighter is the difference between holding the position and flying into the gap.
+  if (peers.size) {
+    c.font = MONO(11);
+    let ry = (isTouch ? 98 : 96) + wings.length * 13;
+    for (const [, rec] of peers) {
+      c.fillStyle = rec.peer.dead ? C.dim : C.hud;
+      c.fillText(rec.peer.dead ? `${rec.peer.callsign} DOWN` : `${rec.peer.callsign} ${Math.round(rec.peer.hull)}%`, tally, ry);
+      ry += 13;
+    }
+  }
   c.textAlign = 'right';
   if (hi > 0) { c.textAlign = 'center'; c.font = MONO(11); c.fillStyle = C.dim; c.fillText(`HIGH ${String(hi).padStart(6, '0')}`, cx, 22); }
 
@@ -6993,6 +7729,41 @@ function drawFlightPanel(c, R, sy, pw, ph, px, py, scopes = true) {
   c.font = MONO(16); c.fillStyle = player.missiles ? C.amber : C.red;
   c.fillText(`×${player.missiles}`, tx + 16, py + 68);
 
+  drawPeerTags(c);
+}
+
+// Nameplates over the other pilots. At four hundred metres and closing, the only thing telling
+// a friendly Striker from a hostile one is the label -- the models are the same hull, which is
+// the whole reason the wingmen fly it.
+const _pt = { x: 0, y: 0, behind: false, lx: 0, ly: 0, lz: 0 };
+const TAG_RANGE = 1600;
+function drawPeerTags(c) {
+  if (!peers.size) return;
+  c.textAlign = 'center';
+  for (const [, rec] of peers) {
+    if (!rec.obj.visible) continue;
+    proj(rec.obj.position, _pt);
+    if (_pt.behind) continue;
+    const d = -_pt.lz;              // camera space looks down -z, so depth is the negated z
+    if (d < 10 || d > TAG_RANGE) continue;
+    // Faded out with range rather than cut off at it: a plate that pops out of existence reads
+    // as a contact lost, which is exactly the wrong thing to tell someone mid-fight.
+    c.globalAlpha = clamp(1.25 - d / TAG_RANGE, 0.15, 1);
+    const y = _pt.y - 18;
+    c.font = MONO(11); c.fillStyle = C.hud;
+    c.fillText(rec.peer.callsign, _pt.x, y);
+    // Hull, and only when there is something to say about it. A row of full bars over every
+    // friendly is noise; a single broken one is information.
+    const h = clamp(rec.peer.hull / 100, 0, 1);
+    if (h < 1) {
+      const w = 34;
+      c.fillStyle = 'rgba(143, 243, 255, 0.18)';
+      c.fillRect(_pt.x - w / 2, y + 4, w, 3);
+      c.fillStyle = h > 0.35 ? C.green : C.red;
+      c.fillRect(_pt.x - w / 2, y + 4, w * h, 3);
+    }
+  }
+  c.globalAlpha = 1;
 }
 
 function bar(c, x, y, w, label, frac, color) {
@@ -7040,6 +7811,9 @@ function drawScope(c, x, y, R, front) {
   for (const m of mines) if (!m.dead && m.armed) blip(m.obj.position, C.red, 4.5, true);
   for (const p of pickups) if (!p.dead) blip(p.obj.position, PICKUPS[p.kind].color, 3);
   for (const w of wings) if (!w.dead) blip(w.obj.position, C.green, 3.5);
+  // Cyan rather than the wingmen's green, and a shade larger: on a scope this small the only
+  // question worth answering at a glance is which of those friendlies is a person.
+  for (const [, rec] of peers) if (rec.obj.visible) blip(rec.obj.position, C.hud, 4.5);
   for (const s of missiles) blip(s.pos, C.amber, 2.5);
   c.restore();
   c.globalAlpha = 1;
@@ -7057,16 +7831,28 @@ function update(dt) {
   banner.t += dt;
   RUNNING.color.setRGB(Math.sin(clock * 3) > 0.6 ? 6 : 0.4, 0.5, 0.4);
   const inp = readInput(dt);
+  // Tell the flight where this ship is, whatever screen we are on. A pilot waiting on the title
+  // with the lobby open is still in the sector, and a socket that says nothing for ten seconds
+  // is dropped -- so this is the heartbeat as much as it is the position.
+  if (net.connected) {
+    net.tickState(player.rig.position, player.rig.quaternion, player.vel, {
+      throttle: player.throttle, firing: player.fireCd > 0,
+      hull: player.hull, shield: player.shield, score, dead: !player.alive && state === 'play',
+    });
+  }
 
   if (state === 'title') {
     titleCamera(dt);
     for (const e of enemies) updateEnemy(e, dt);
   } else if (!paused) {
     if (state === 'play') updatePlayer(dt, inp);
-    for (const e of enemies) updateEnemy(e, dt);
+    if (hosting()) for (const e of enemies) updateEnemy(e, dt);
+    else updateSwarm();
     enemies = enemies.filter((e) => !e.dead);
-    updateWings(dt);
+    sendSwarm();
+    if (hosting()) updateWings(dt); else updateMates();
     if (wings.some((w) => w.dead)) wings = wings.filter((w) => !w.dead);
+    updatePeers();
     updateBolts(dt);
     updateMissiles(dt);
     updateRocks(dt);
@@ -7132,6 +7918,17 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 refreshTitle();
 routeHash();   // a link straight to #controls or #about opens there
+// ?flight=ABCD joins that sector, ?flight=new opens a private one. Deliberately a query
+// parameter and not a hash: the hash already routes the reading views, and an invite that
+// collides with #controls would be a puzzle rather than a link.
+const wantFlight = new URLSearchParams(location.search).get('flight');
+if (wantFlight) {
+  const w = wantFlight.toLowerCase();
+  const opts = w === 'new' ? { create: 'private' }
+    : w === 'quick' ? {}                       // matchmake: no code to pass around at all
+    : { sector: wantFlight.toUpperCase().slice(0, 4) };
+  joinFlight(opts);
+}
 ping('load');  // the denominator: this fires whether or not anyone presses Launch
 frame();
 </script>
