@@ -195,6 +195,77 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 }
 .tb-throttle .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 60%; background: rgba(143, 243, 255, 0.3); }
 .tb-throttle span { position: absolute; left: 0; right: 0; top: 6px; text-align: center; font: 600 9px var(--mono); color: var(--hud); letter-spacing: 0.06em; }
+
+/* ---------------------------------------------------------------- the cabinet
+   The start-up screens are a cabinet, not a page. What makes that read is not a filter applied
+   afterwards; it is one instruction per screen in the largest type on it, no prose, chrome that
+   admits it is a screen, and movement. A still arcade screen is a broken arcade screen. */
+.cab { display: grid; place-items: center; text-align: center; }
+/* Scanlines and a vignette, both faint. Loud ones make text unreadable and read as a filter
+   rather than as a screen; these are felt rather than seen. */
+.cab::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 3;
+  background:
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px),
+    radial-gradient(130% 90% at 50% 50%, transparent 52%, rgba(2, 4, 9, 0.78) 100%);
+}
+.cabin {
+  box-sizing: border-box; width: 100%; max-width: 620px; position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 20px; min-width: 0;
+}
+.logo {
+  margin: 0; font-weight: 700; font-size: clamp(44px, 13vw, 104px); line-height: 0.88;
+  letter-spacing: 0.02em; color: var(--ink);
+  text-shadow: 0 0 18px rgba(143, 243, 255, 0.45), 0 0 54px rgba(143, 243, 255, 0.2);
+}
+.logo span {
+  display: block; margin-top: 0.42em; font-family: var(--mono); font-weight: 400;
+  font-size: clamp(11px, 2.6vw, 15px); letter-spacing: 0.44em; color: var(--hud); text-shadow: none;
+}
+/* The one instruction. Deliberately the largest interactive thing on any screen it appears on. */
+.press {
+  font-family: var(--display); font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  font-size: clamp(19px, 4.4vw, 27px); color: var(--void); background: var(--amber);
+  border: 0; padding: 17px 44px; cursor: pointer;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  box-shadow: 0 0 28px rgba(255, 181, 71, 0.4);
+  animation: pulse 1.9s ease-in-out infinite;
+}
+.press.sm { font-size: clamp(15px, 3.4vw, 19px); padding: 13px 32px; }
+.press:disabled { background: var(--line); color: var(--dim); box-shadow: none; animation: none; cursor: default; }
+.press:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+@keyframes pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.22); } }
+.blink { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hud); animation: blink 1.5s steps(1, end) infinite; }
+@keyframes blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.18; } }
+.cab-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.opt {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--hud); background: none; border: 1px solid var(--line); padding: 11px 20px; cursor: pointer;
+}
+.opt:hover, .opt:focus-visible { background: rgba(143, 243, 255, 0.12); outline: none; border-color: var(--hud); }
+/* Each flow screen asks exactly one thing, and says which of them this is. */
+.step { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--dim); }
+.ask { margin: 0; font-weight: 700; font-size: clamp(24px, 6vw, 44px); line-height: 1; letter-spacing: 0.04em; text-wrap: balance; }
+.picks { display: grid; gap: 12px; width: 100%; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.pick {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left;
+  border: 1px solid var(--line); background: var(--panel); padding: 15px 17px; cursor: pointer;
+  color: var(--ink); font-family: var(--display); min-width: 0;
+}
+.pick b { font-size: 17px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.pick span { font-family: var(--mono); font-size: 12px; line-height: 1.45; color: var(--dim); }
+.pick.on { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber), 0 0 22px rgba(255, 181, 71, 0.18); }
+.pick.on b { color: var(--amber); }
+.pick:focus-visible { outline: 2px solid var(--hud); outline-offset: 3px; }
+.pick:disabled { opacity: 0.45; cursor: default; }
+/* The attract board: a cabinet's high scores, not a results table. */
+.attract { width: 100%; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 10px 0 4px; }
+.attract .board-src { justify-content: center; }
+.attract .board { font-size: 13px; }
+.difflever { justify-content: center; align-items: center; }
+.winglabel { font-family: var(--mono); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--dim); margin-right: 4px; }
+.diffopt.on { color: var(--amber); border-color: var(--amber); }
+@media (max-height: 720px) { .logo { font-size: clamp(34px, 10vw, 62px); } .cabin { gap: 14px; } }
 </style>
 
 <canvas id="gl" aria-label="Cockpit view"></canvas>
@@ -219,37 +290,25 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   </div>
 </div>
 
-<div class="overlay" id="title">
-  <section class="brief">
-    <p class="eyebrow">Fleet Strike Command · Varan system</p>
-    <h1 class="name">SORTIE!<span>Varan system</span></h1>
-    <p class="lede">The Swarm has jumped the Varan system. Launch from the carrier <b>Halcyon</b> and break their attack formations before they reach the fleet.</p>
-    <div class="panel" id="tBoardPanel" hidden>
-      <h2>Gold leader board</h2>
+<div class="overlay cab" id="title">
+  <section class="cabin">
+    <h1 class="logo">SORTIE!<span>Varan System</span></h1>
+    <div class="attract" id="tBoardPanel" hidden>
       <p class="board-src"><span id="tBoardWhich">This browser</span><button class="board-swap" id="tBoardSwap" type="button" hidden>Show global</button></p>
       <div class="board-scroll" id="tBoardScroll"><table class="board" id="tBoard"></table></div>
     </div>
-    <div class="panel" id="diffPanel">
-      <h2>Difficulty</h2>
-      <div class="difflever" id="diffLever"></div>
-      <p class="sub" id="diffNote"></p>
+    <button class="press" id="launchBtn" type="button" disabled>Loading</button>
+    <p class="blink" id="startHint">Press Start</p>
+    <div class="cab-row">
+      <button class="opt" id="continueBtn" type="button" hidden>Continue</button>
+      <button class="opt" id="flowBtn" type="button">Options</button>
+      <button class="opt" id="titleFull" type="button" hidden>Full screen</button>
     </div>
-    <div class="panel" id="wingPanel">
-      <h2>Wingmen</h2>
-      <div class="difflever" id="wingLever"></div>
-      <p class="sub" id="wingNote"></p>
-    </div>
-    <div class="panel" id="shipPanel">
-      <h2>Fighter</h2>
-      <div class="difflever" id="shipLever"></div>
-      <p class="sub" id="shipNote"></p>
-    </div>
-    <div class="actions">
-      <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
-      <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
-      <button class="launch ghost" id="titleFull" type="button" hidden>Full screen</button>
-      <p class="sub" id="startHint">Enter · controller Start or A</p>
-    </div>
+    <nav class="links">
+      <a class="link" href="#controls">Controls</a>
+      <a class="link" href="#about">About</a>
+      <a class="link" href="stats.html">Records</a>
+    </nav>
     <div class="panel install" id="installPanel" hidden>
       <h2 id="installTitle">Play it full screen</h2>
       <p class="note" id="installBody"></p>
@@ -258,12 +317,60 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
         <button class="launch ghost" id="installDismiss" type="button">Not now</button>
       </div>
     </div>
-    <nav class="links">
-      <a class="link" href="#flight">Co-op</a>
-      <a class="link" href="#controls">Controls</a>
-      <a class="link" href="#about">About</a>
-      <a class="link" href="stats.html">Records</a>
-    </nav>
+  </section>
+</div>
+
+<div class="overlay cab" id="scMode" hidden>
+  <section class="cabin">
+    <p class="step">Step 1</p>
+    <h2 class="ask">How do you fly?</h2>
+    <div class="picks" id="modePicks"></div>
+    <div class="cab-row">
+      <button class="opt" data-flow="back" type="button">Back</button>
+      <button class="press sm" data-flow="next" type="button">Next</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay cab" id="scLink" hidden>
+  <section class="cabin">
+    <p class="step">Step 2</p>
+    <h2 class="ask">Who is in the flight?</h2>
+    <div class="picks" id="linkPicks"></div>
+    <p class="sub" id="linkNote"></p>
+    <div class="initials" id="linkCode" hidden></div>
+    <div class="cab-row">
+      <button class="opt" data-flow="back" type="button">Back</button>
+      <button class="press sm" data-flow="next" type="button">Next</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay cab" id="scDiff" hidden>
+  <section class="cabin">
+    <p class="step" id="diffStep">Step 2</p>
+    <h2 class="ask">How hard?</h2>
+    <div class="picks" id="diffLever"></div>
+    <p class="sub" id="diffNote"></p>
+    <div class="difflever" id="wingLever"></div>
+    <p class="blink" id="wingNote"></p>
+    <div class="cab-row">
+      <button class="opt" data-flow="back" type="button">Back</button>
+      <button class="press sm" data-flow="next" type="button">Next</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay cab" id="scShip" hidden>
+  <section class="cabin">
+    <p class="step" id="shipStep">Step 3</p>
+    <h2 class="ask">Pick your hull</h2>
+    <div class="picks" id="shipLever"></div>
+    <p class="blink" id="shipNote"></p>
+    <div class="cab-row">
+      <button class="opt" data-flow="back" type="button">Back</button>
+      <button class="press sm" data-flow="launch" type="button">Launch</button>
+    </div>
   </section>
 </div>
 
@@ -535,7 +642,7 @@ function noWebGL(err) {
   hint.className = 'note';
   hint.innerHTML = 'This browser could not open a 3D context. Turn on hardware acceleration, or try '
     + 'another browser or device. The <a class="link" href="stats.html">records page</a> works either way.';
-  for (const id of ['continueBtn', 'tBoardPanel', 'diffPanel', 'wingPanel', 'shipPanel', 'installPanel']) $(id).hidden = true;
+  for (const id of ['continueBtn', 'flowBtn', 'tBoardPanel', 'installPanel']) $(id).hidden = true;
   // A standalone router for the two reading views: the one further down this file is never reached,
   // and the flight manual is worth reading even on a machine that cannot fly.
   const show = () => {
@@ -6060,6 +6167,95 @@ function flightViewOpened() {
 }
 function flightViewClosed() { clearInterval(lobbyTimer); lobbyTimer = null; }
 
+// ---------------------------------------------------------------- the cabinet flow
+// Four screens behind one prompt. The landing page launches with whatever you chose last time,
+// because a cabinet is one button to play and menus only if you want them -- and a run here can
+// end in forty seconds, so four screens before every retry would be its own kind of hostile.
+//
+// This is a separate router from the reading views on purpose. Those are documents reached by
+// hash and shareable; these are a wizard with a Back button and no business in anyone's URL.
+const FLOW = ['scMode', 'scLink', 'scDiff', 'scShip'];
+let flowAt = -1;            // -1 is the landing page
+let flowMode = 'solo';      // what the mode page last chose
+
+// Co-op gets an extra screen. A flow that shows you a page with nothing on it is worse than one
+// page fewer, so solo never sees the host/join step at all.
+const flowPages = () => (flowMode === 'coop' ? FLOW : FLOW.filter((id) => id !== 'scLink'));
+
+function showFlow(i) {
+  const pages = flowPages();
+  flowAt = Math.max(-1, Math.min(pages.length - 1, i));
+  $('title').hidden = flowAt >= 0;
+  for (const id of FLOW) $(id).hidden = pages[flowAt] !== id;
+  // The ship is only drawn in the chase camera during play; the turntable needs it on screen,
+  // and parked somewhere the carrier is not.
+  const onShip = pages[flowAt] === 'scShip';
+  playerShip.visible = onShip;
+  if (onShip) { player.rig.position.copy(SHIP_POSE); player.rig.quaternion.identity(); }
+  if (flowAt < 0) { refreshTitle(); return; }
+  // Each page numbers itself against the flow it is actually in, so co-op's extra screen does
+  // not leave solo counting to four. Read off the page rather than kept per-screen, because a
+  // page that knows its own number gets it wrong the moment the flow changes length.
+  const step = $(pages[flowAt]).querySelector('.step');
+  if (step) step.textContent = `Step ${flowAt + 1} of ${pages.length}`;
+  refreshFlowPage();
+}
+const flowOpen = () => showFlow(0);
+const flowExit = () => showFlow(-1);
+function flowNext() {
+  const pages = flowPages();
+  if (flowAt >= pages.length - 1) { onStart(); return; }
+  showFlow(flowAt + 1);
+}
+function flowBack() { showFlow(flowAt - 1); }
+
+// Step the highlight along this page's choices. Each page has exactly one set of them, which is
+// what makes a single mover work for all four.
+function flowMove(d) {
+  const page = flowPages()[flowAt];
+  const box = $(page).querySelector('.picks');
+  if (!box) return;
+  const picks = [...box.querySelectorAll('.pick:not(:disabled)')];
+  if (!picks.length) return;
+  const at = picks.findIndex((b) => b.classList.contains('on'));
+  const next = picks[(Math.max(0, at) + d + picks.length) % picks.length];
+  next.click();
+}
+
+function refreshFlowPage() {
+  const page = flowPages()[flowAt];
+  if (page === 'scMode') refreshMode();
+  if (page === 'scLink') refreshLink();
+  if (page === 'scDiff') { refreshDifficulty(); refreshWingmen(); }
+  if (page === 'scShip') refreshFighter();
+}
+
+function refreshMode() {
+  const PICKS = [
+    { id: 'solo', name: 'Alone', sub: 'You against the Swarm. Wingmen optional.' },
+    { id: 'coop', name: 'A flight', sub: 'Up to four pilots on one sortie, fighters shared.' },
+  ];
+  $('modePicks').innerHTML = PICKS.map((m) =>
+    `<button class="pick ${m.id === flowMode ? 'on' : ''}" type="button" data-mode="${m.id}"><b>${m.name}</b><span>${m.sub}</span></button>`).join('');
+}
+
+function refreshLink() {
+  const inFlight = net.status === 'open' && net.sector;
+  const PICKS = [
+    { id: 'quick', name: 'Quick match', sub: 'Drop in with whoever is already up.' },
+    { id: 'new', name: 'Open a flight', sub: 'Unlisted. You get a code to pass on.' },
+    { id: 'code', name: 'I have a code', sub: 'Four characters from whoever invited you.' },
+  ];
+  $('linkPicks').innerHTML = PICKS.map((m) =>
+    `<button class="pick ${m.id === linkPick ? 'on' : ''}" type="button" data-link="${m.id}"><b>${m.name}</b><span>${m.sub}</span></button>`).join('');
+  $('linkCode').hidden = linkPick !== 'code';
+  if (linkPick === 'code') drawCode();
+  $('linkNote').textContent = inFlight
+    ? `In sector ${net.sector} · ${net.peers.size + 1} of 4 · you are ${net.host ? 'flight lead' : 'on the wing'}`
+    : net.error ? `The flight channel said: ${net.error}.` : 'Next opens the channel.';
+}
+let linkPick = 'quick';
+
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
   for (const b of bolts) scene.remove(b.m);
@@ -6553,6 +6749,10 @@ let view = null;        // which reading view is open
 let viewFrom = 'title'; // where Back goes: the title, or the pause screen mid-run
 function openView(name, { hash = true } = {}) {
   if (!VIEWS.includes(name)) return;
+  // A reading view is reached from the landing page, but the hash can be typed or walked into
+  // from anywhere. Leaving the flow first means closeView has one screen to restore rather than
+  // uncovering the landing page with a flow screen still drawn on top of it.
+  if (flowAt >= 0) flowExit();
   if (!view) viewFrom = state === 'title' ? 'title' : 'pause';
   view = name;
   for (const v of VIEWS) $(v).hidden = v !== name;
@@ -6591,7 +6791,7 @@ function refreshDifficulty() {
   // the sortie the Continue button is about to resume.
   const shown = (r && DIFFS.find((d) => d.id === r.level)) || LEVEL;
   $('diffLever').innerHTML = DIFFS.map((d) =>
-    `<button class="diffopt ${d.id === shown.id ? 'on' : ''}" type="button" data-diff="${d.id}"${r ? ' disabled' : ''}>${d.name}</button>`).join('');
+    `<button class="pick ${d.id === shown.id ? 'on' : ''}" type="button" data-diff="${d.id}"${r ? ' disabled' : ''}><b>${d.name}</b><span>${d.sub} · ${d.score}x</span></button>`).join('');
   $('diffNote').textContent = r
     ? `${shown.name} · locked until this run ends`
     : `${shown.sub} · scores count for ${shown.score}x`;
@@ -6607,11 +6807,12 @@ function refreshTitle() {
   const r = loadRun();
   const cont = $('continueBtn');
   cont.hidden = !r;
-  if (r) cont.textContent = `Continue · Wave ${r.wave}`;
-  $('launchBtn').textContent = assetsSettled ? (r ? 'New sortie' : 'Launch') : 'Loading ships…';
-  $('startHint').textContent = r
-    ? 'Enter or A continues · N or X starts a new sortie'
-    : 'Enter · controller Start or A';
+  if (r) cont.textContent = 'New sortie';
+  // A cabinet says one thing in the biggest type it has. Not "Launch", which is a form button.
+  $('launchBtn').textContent = assetsSettled ? (r ? 'Continue Run' : 'Press Start') : 'Loading';
+  $('startHint').textContent = assetsSettled
+    ? (r ? `Wave ${r.wave} · N for a new sortie` : 'Enter · Start · or tap')
+    : 'Reading ship data';
   refreshDifficulty();
   refreshWingmen();
   refreshFighter();
@@ -6664,11 +6865,56 @@ function setupTitle() {
   }
 }
 const _tc = V(0, -5, -40);
+// Each screen frames a different part of the scene that is already running. This is the whole
+// of "graphics ala arcade" here: the engine is the artwork, so it cannot drift from the game and
+// costs nothing to keep current. The camera eases between shots rather than cutting, because a
+// cut to a new composition reads as a bug and a glide reads as a cabinet.
+//
+// `look` is where the lens points; `at` is where it sits. Both are in world space.
+// Entering a shot with shotReady false makes the next frame copy rather than ease, which is how
+// a cut is spelled here.
+const SHOTS = {
+  // The landing page: the old slow orbit, which is the shot the game has always opened on.
+  title: (t) => ({ at: V(Math.cos(t * 0.04 + 0.8) * 620, 110 + Math.sin(t * 0.1) * 30, Math.sin(t * 0.04 + 0.8) * 620 - 40), look: _tc.clone() }),
+  // Mode: pulled back and high, so the carrier reads as something you launch from.
+  scMode: (t) => ({ at: V(Math.cos(t * 0.05) * 430, 210, Math.sin(t * 0.05) * 430 - 40), look: V(0, -30, -40) }),
+  // Host or join: down at the deck, where another pilot would come aboard.
+  scLink: (t) => ({ at: V(Math.cos(t * 0.06 + 2) * 300, 40 + Math.sin(t * 0.2) * 8, Math.sin(t * 0.06 + 2) * 300 - 60), look: V(0, -10, -40) }),
+  // Difficulty: the Swarm patrol, framed tight. The drones are already circling out there.
+  scDiff: (t) => ({ at: V(170 + Math.cos(t * 0.22) * 90, 56, -60 + Math.sin(t * 0.22) * 90), look: V(200, 40, -100) }),
+  // Fighter: the launch end of the deck, close and turning.
+  //
+  // This wanted to be a turntable on the ship you actually chose, and is not one yet. The ship
+  // parks and the camera arrives -- measured: vis true, one child, pose reached -- but the hull
+  // renders black, because the scene's lights sit around the carrier and any anchor far enough
+  // away to be clear of it is also far enough to be unlit. Lighting a second spot, or moving the
+  // ship somewhere lit and small enough to be clear, is its own piece of work. Until then this
+  // frames the deck a fighter launches from, which is at least about the right subject.
+  scShip: (t) => ({ at: V(Math.cos(t * 0.09 + 1) * 150, 24, Math.sin(t * 0.09 + 1) * 150 - 120), look: V(0, -8, -150) }),
+};
+// Where the fighter waits while you look at it. This wants to be properly far from the carrier:
+// the Halcyon is 760 long and centred near the origin, so the first attempt at 520 out put the
+// camera 140 from its nose and framed hull plating instead of a ship.
+// Where the fighter waits, for when the turntable shot works. Straight up from the carrier is
+// the one direction with nothing in it -- and also nothing lighting it, which is the open
+// problem. See the note on SHOTS.scShip.
+const SHIP_POSE = V(0, 1800, 0);
+const _shotAt = V(), _shotLook = V();
+let shotReady = false;
 function titleCamera(dt) {
   titleT += dt;
-  const a = titleT * 0.04 + 0.8;
-  camera.position.set(Math.cos(a) * 620, 110 + Math.sin(titleT * 0.1) * 30, Math.sin(a) * 620 - 40);
-  camera.lookAt(_tc);
+  const page = flowAt >= 0 ? flowPages()[flowAt] : 'title';
+  const shot = (SHOTS[page] || SHOTS.title)(titleT);
+  // The ship turntable orbits the player's own fighter, which sits wherever it was parked.
+  if (page === 'scShip') { shot.at.add(player.rig.position); shot.look.add(player.rig.position); }
+  if (!shotReady) { _shotAt.copy(shot.at); _shotLook.copy(shot.look); shotReady = true; }
+  // A fixed per-second rate rather than a per-frame one, so the glide does not depend on how
+  // fast the machine happens to be drawing.
+  const k = damp(2.6, dt);
+  _shotAt.lerp(shot.at, k);
+  _shotLook.lerp(shot.look, k);
+  camera.position.copy(_shotAt);
+  camera.lookAt(_shotLook);
 }
 
 // Chase camera on a spring arm behind and above the fighter, or the cockpit with a little head lag.
@@ -6742,7 +6988,7 @@ function refreshWingmen() {
   const r = loadRun();
   const shown = r ? (WINGMEN.find((w) => w.n === (r.ai | 0)) || WINGMEN[0]) : WINGS;
   const seats = wingSeats();
-  $('wingLever').innerHTML = WINGMEN.map((w) =>
+  $('wingLever').innerHTML = `<span class="winglabel">Wingmen</span>` + WINGMEN.map((w) =>
     `<button class="diffopt ${w.n === shown.n ? 'on' : ''}" type="button" data-wing="${w.n}"${r ? ' disabled' : ''}>${w.name}</button>`).join('');
   // Three notes, because three different things can be true: a run is in progress and the
   // choice is locked, a flight has taken the stations, or it is just you and the number stands.
@@ -6754,7 +7000,7 @@ function refreshWingmen() {
 }
 function refreshFighter() {
   $('shipLever').innerHTML = FIGHTERS.map((f) =>
-    `<button class="diffopt ${f.id === FIGHTER.id ? 'on' : ''}" type="button" data-ship="${f.id}">${f.name}</button>`).join('');
+    `<button class="pick ${f.id === FIGHTER.id ? 'on' : ''}" type="button" data-ship="${f.id}"><b>${f.name}</b><span>${f.sub}</span></button>`).join('');
   $('shipNote').textContent = `${FIGHTER.sub} · paint only, every airframe flies the same`;
 }
 function usePlayerModel() {
@@ -6837,6 +7083,19 @@ window.addEventListener('keydown', (e) => {
       if (at >= 0) { entry.at[entry.cur] = at; if (entry.cur < 2) entry.cur++; drawEntry(); sfx.comm(); }
     }
     return;
+  }
+  // The flow owns Escape and Backspace while it is up, and the code wheel owns letters on the
+  // one page that has it. Checked before the reading views, which are a different router.
+  if (flowAt >= 0 && !view) {
+    if (e.code === 'Escape') { flowExit(); return; }
+    if (e.code === 'Backspace') { flowAt === 0 ? flowExit() : flowBack(); return; }
+    if (flowPages()[flowAt] === 'scLink' && linkPick === 'code') {
+      if (e.key && e.key.length === 1 && typeCode(e.key)) return;
+      if (e.code === 'ArrowLeft') { codeCur = Math.max(0, codeCur - 1); return drawCode(); }
+      if (e.code === 'ArrowRight') { codeCur = Math.min(3, codeCur + 1); return drawCode(); }
+      if (e.code === 'ArrowUp') return spinCode(codeCur, 1);
+      if (e.code === 'ArrowDown') return spinCode(codeCur, -1);
+    }
   }
   // The code wheel takes letters and arrows before the view swallows them. Everything it does
   // not claim falls through to the modal behaviour below, so Escape still backs out.
@@ -7005,11 +7264,42 @@ function updateTouchUI() {
   if (show) throttleFill.style.height = `${Math.round(player.throttle * 100)}%`;
 }
 
-$('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) startGame(); });
+$('launchBtn').addEventListener('click', () => { if (state === 'title' && assetsSettled) onStart(); });
 $('diffLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-diff]');
   if (b) setLevel(b.dataset.diff);
 });
+$('flowBtn').addEventListener('click', () => flowOpen());
+// One handler for all four screens: they are redrawn constantly and per-button listeners would
+// not survive it.
+for (const id of FLOW) {
+  $(id).addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-flow], [data-mode], [data-link], [data-cspin], [data-cslot], #codeGo');
+    if (!t) return;
+    if (t.dataset.mode) { flowMode = t.dataset.mode; return refreshMode(); }
+    if (t.dataset.link) { linkPick = t.dataset.link; return refreshLink(); }
+    if (t.dataset.cspin) { const [n, d] = t.dataset.cspin.split(':'); return spinCode(+n, +d); }
+    if (t.dataset.cslot !== undefined) { codeCur = +t.dataset.cslot; return drawCode(); }
+    if (t.id === 'codeGo') { await joinFlight({ sector: codeText() }); return refreshLink(); }
+    const act = t.dataset.flow;
+    if (act === 'back') return flowAt === 0 ? flowExit() : flowBack();
+    if (act === 'launch') return onStart();
+    if (act === 'next') {
+      // Leaving the host/join page is where a flight is actually joined, so that the pages
+      // before it cost nothing and Back is always free.
+      if (flowPages()[flowAt] === 'scLink' && !(net.status === 'open' && net.sector)) {
+        if (linkPick === 'quick') await joinFlight({});
+        else if (linkPick === 'new') await joinFlight({ create: 'private' });
+        else await joinFlight({ sector: codeText() });
+        refreshLink();
+        if (!(net.status === 'open' && net.sector)) return;   // refused: stay and say so
+      }
+      // Solo means solo: a flight left over from a previous sortie would otherwise come with you.
+      if (flowPages()[flowAt] === 'scMode' && flowMode === 'solo' && net.status === 'open') leaveFlight();
+      return flowNext();
+    }
+  });
+}
 $('wingLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-wing]');
   if (b) setWingmen(b.dataset.wing);
@@ -7042,8 +7332,7 @@ for (const [ev, on] of [['pointerenter', true], ['pointerleave', false], ['point
 $('tBoardScroll').addEventListener('pointercancel', () => { boardHover = false; });
 $('continueBtn').addEventListener('click', () => {
   if (state !== 'title' || !assetsSettled) return;
-  const r = loadRun();
-  if (r) continueGame(r); else refreshTitle();
+  startGame();
 });
 // One delegated handler: the wheel is rebuilt on every change, so per-button listeners would
 // have to be re-attached each time.
@@ -7134,6 +7423,21 @@ function readInput(dt) {
     }
     if (view) {
       if (edge(1) || edge(0) || edge(9)) closeView();
+      padPrev.set(gp.index, now);
+      continue;
+    }
+    // The flow is a cabinet, so it answers to a stick and two buttons: left and right move
+    // between the choices on this page, A takes the one highlighted and goes on, B steps back.
+    // Without this the pages are mouse-only, which is the one thing an arcade screen must not be.
+    if (flowAt >= 0) {
+      const fy = -(gp.axes[1] || 0), fx = gp.axes[0] || 0;
+      const up = now[12] || fy > 0.6, down = now[13] || fy < -0.6;
+      const left = now[14] || fx < -0.6, right = now[15] || fx > 0.6;
+      if ((left && !padNav.left) || (up && !padNav.up)) flowMove(-1);
+      if ((right && !padNav.right) || (down && !padNav.down)) flowMove(1);
+      if (edge(0) || edge(9)) flowNext();
+      if (edge(1)) { flowAt === 0 ? flowExit() : flowBack(); }
+      Object.assign(padNav, { up, down, left, right });
       padPrev.set(gp.index, now);
       continue;
     }
