@@ -32,7 +32,7 @@ const DMG = Number(arg('dmg', 60));
 // Spawn hp per type, so a drop can be told from a fresh ship. Only used for the report.
 const seenHp = new Map();
 let hpDropped = 0;
-let paid = 0, credited = 0, sawField = 0, lastLives = null, firesSeen = 0, sentHits = 0;
+let paid = 0, credited = 0, sawField = 0, lastLives = null, firesSeen = 0, sentHits = 0, maxWings = 0;
 let gotTicks = 0, gotFoes = 0, foeBytes = 0, lastFoeCount = 0, maxFoeCount = 0, sawWave = null;
 const ORIGIN = arg('origin', 'http://127.0.0.1:8777');
 
@@ -90,6 +90,8 @@ sock.on('data', (chunk) => {
       // Counted rather than printed: at 20 Hz the log would be the only thing anyone sees.
       gotFoes++; lastFoeCount = (m.e || []).length; foeBytes += body.length;
       if (lastFoeCount > maxFoeCount) maxFoeCount = lastFoeCount;
+      const w = (m.w || []).length;
+      if (w > maxWings) { maxWings = w; console.log(` <- ${w} wingmen on the wire, stations ${m.w.map((r) => r[0]).join(',')}`); }
       // Shoot the first thing on the list, hard, so something dies while we are watching.
       // Report against every ship in the snapshot, not just the first. An idle host player is
       // rammed by drones within a second or two of them spawning, so a report aimed at one
@@ -198,7 +200,13 @@ if (SWARM > 0) {
         r2(c[0] + Math.cos(a) * R), r2(c[1] + 10 + (i % 4) * 6), r2(c[2] + Math.sin(a) * R),
         0, r3(Math.sin(yaw / 2)), 0, r3(Math.cos(yaw / 2)), 40, 'attack']);
     }
-    say({ type: 'enemies', e: rows });
+    // Two fake wingmen alongside, so a browser guest's mirror path can be seen working.
+    const wrows = [0, 1].map((slot) => {
+      const a = t * 0.4 + slot * 1.6;
+      return [slot, r2(c[0] + Math.cos(a) * 26), r2(c[1] + 4), r2(c[2] + Math.sin(a) * 26),
+        0, r3(Math.sin(a / 2)), 0, r3(Math.cos(a / 2)), 40 - slot * 5];
+    });
+    say({ type: 'enemies', e: rows, w: wrows });
   }, 50).unref?.();
 }
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -211,6 +219,7 @@ setTimeout(() => {
     + (gotFoes ? `, most ships in one ${maxFoeCount}, mean ${Math.round(foeBytes / gotFoes)} bytes` : '')
     + (sawWave ? `, wave ${sawWave.n}` : '')
     + (sawField ? `, field ${sawField} objects` : '')
+    + (maxWings ? `, ${maxWings} wingmen replicated` : '')
     + (firesSeen ? `, ${firesSeen} tracers` : '')
     + (lastLives !== null ? `, lives -> ${lastLives}` : '')
     + (ATTACK ? `, sent ${sentHits} hit reports, ${hpDropped} hp drops observed, credited ${credited} kills worth ${paid}` : ''));

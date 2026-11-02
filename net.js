@@ -108,6 +108,7 @@ export class Net {
     this.private = false;
     this.peers = new Map();
     this.foes = new Map();         // the Swarm, as reported by whoever is hosting
+    this.mates = new Map();        // the host's AI wingmen, by station
     this.wave = null;              // { n, kind } from the host's last wave event
     this.rtt = 0;
     this.error = null;
@@ -273,12 +274,15 @@ export class Net {
   // twenty times a second the key names cost more than the numbers do, and this is the largest
   // thing on the wire by a wide margin.
   //   [ id, type, x, y, z, qx, qy, qz, qw, hp, state ]
-  sendFoes(list) {
+  // Wingmen ride along in the same message rather than taking one of their own: there are at
+  // most three of them, they change at the same rate, and a second 20 Hz message would double
+  // the host's share of the rate limit for a dozen numbers.
+  sendFoes(list, mates) {
     if (!this.connected || !this.host) return;
     const t = now();
     if (t - this._foeAt < 1000 / STATE_HZ) return;
     this._foeAt = t;
-    this.send('enemies', { e: list });
+    this.send('enemies', { e: list, w: mates });
   }
 
   _foes(msg) {
@@ -295,6 +299,18 @@ export class Net {
     // this is what guarantees the guest's world cannot drift from the host's -- a missed event
     // costs a bang, not a ship that lives for ever.
     for (const id of [...this.foes.keys()]) if (!seen.has(id)) this.foes.delete(id);
+
+    // The wingmen, keyed by station, same shape and same rule.
+    const flew = new Set();
+    for (const row of msg.w || []) {
+      const [slot, x, y, z, qx, qy, qz, qw, hp] = row;
+      flew.add(slot);
+      let m = this.mates.get(slot);
+      if (!m) { m = new Foe(slot, 'wing'); this.mates.set(slot, m); }
+      m.hp = hp;
+      m.track.push({ pos: [x, y, z], rot: [qx, qy, qz, qw], vel: null });
+    }
+    for (const slot of [...this.mates.keys()]) if (!flew.has(slot)) this.mates.delete(slot);
   }
 
   // --- inbound ------------------------------------------------------------
@@ -312,6 +328,7 @@ export class Net {
         this.private = !!msg.private;
         this.peers.clear();
         this.foes.clear();
+        this.mates.clear();
         for (const p of msg.players || []) this.peers.set(p.id, new Peer(p));
         this.status = 'open';
         this._emit('status', { status: this.status });
