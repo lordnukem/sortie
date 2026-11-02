@@ -395,7 +395,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 <div class="overlay cab cab-bottom" id="scShip" hidden>
   <section class="cabin">
     <p class="step" id="shipStep">Step 3</p>
-    <h2 class="ask">Pick your hull</h2>
+    <h2 class="ask">Pick your fighter</h2>
     <div class="hullrow" id="shipLever"></div>
     <p class="blink" id="shipNote"></p>
     <div class="cab-row">
@@ -6253,6 +6253,10 @@ function flowHide() {
   flowAt = -1;
   for (const id of FLOW) $(id).hidden = true;
   playerShip.visible = false;
+  showKey.intensity = 0;
+  // The showroom pose is a presentation, not a state the game should inherit. resetPlayer puts
+  // this back too, but leaving it set here means nothing between the two can read it.
+  player.rig.quaternion.identity();
 }
 function flowNext() {
   const pages = flowPages();
