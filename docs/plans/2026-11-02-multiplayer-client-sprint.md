@@ -172,6 +172,12 @@ button; enter-a-code; a pilot list with the host marked; Leave.
 Mobile matters more here than anywhere, because the touch layout owns the whole screen — so the
 lobby is a title-screen view and never an in-flight overlay.
 
+**Built with no text field at all** (decided by the survey, 2026-11-02). This game has never had
+an `<input>` anywhere — the arcade initials are a wheel driven by keys — and on a phone a text
+field summons the soft keyboard over a game that has just gone full screen. So the callsign is
+the three initials the player already has, and the sector code reuses the initials wheel, which
+works from a keyboard, a thumb or a gamepad without asking for one.
+
 *Proven by:* quick match, private code round trip, list refresh and leave, on desktop and at phone
 width.
 
