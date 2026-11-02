@@ -18,16 +18,38 @@ const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const TICK_RATE_HZ = 20;
 const TICK_INTERVAL_MS = 1000 / TICK_RATE_HZ;
 const PLAYER_TIMEOUT_MS = 10_000;
-const RESPAWN_MS = 4_000;
 
-// Bounds. A state packet is a few hundred bytes and a join is smaller, so 16 KiB is already
-// two orders of magnitude of headroom; the point is that there is a ceiling at all.
-const MAX_FRAME = 16 * 1024;        // one frame's declared payload
-const MAX_MESSAGE = 32 * 1024;      // a whole message, fragments reassembled
-const MAX_BUFFER = 64 * 1024;       // unparsed bytes held for a frame that has not arrived
-const MAX_PLAYERS = 16;             // pilots in one sector
+// Bounds. These were first sized for a protocol that carried one ship per message; co-op adds
+// the host's enemy snapshot, which is the largest thing on the wire -- a late wave is about 28
+// ships, and at roughly 100 bytes each that is ~3 KiB a tick. 64 KiB leaves an order of
+// magnitude of headroom for a boss wave with a capital escort and still bounds the damage: the
+// worst case a peer can make the process hold is MAX_BUFFER per socket, so
+// 192 KiB x MAX_PLAYERS x MAX_SECTORS, which is about 18 MiB with these numbers.
+const MAX_FRAME = 64 * 1024;        // one frame's declared payload
+const MAX_MESSAGE = 96 * 1024;      // a whole message, fragments reassembled
+const MAX_BUFFER = 192 * 1024;      // unparsed bytes held for a frame that has not arrived
+const MAX_PLAYERS = 4;              // pilots in one sector: Gold Lead and three wing stations
+const MAX_SECTORS = 24;             // sorties running at once
 const MAX_CONNS_PER_IP = 4;         // sockets from one address
-const MSG_PER_SEC = 60;             // 20 Hz of state leaves room for fire and hit reports
+// The host is the busiest talker: 20 Hz of its own state, 20 Hz of enemy snapshots, plus wave
+// and kill events. 120 leaves room for a burst without leaving room for a flood.
+const MSG_PER_SEC = 120;
+const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // no O/0, no I/1 -- these get read aloud
+
+// What a guest may not say. The host owns the Swarm, the wave and the run; a guest claiming any
+// of it is either broken or trying, and in both cases the message is dropped rather than relayed.
+const HOST_ONLY = new Set(['enemies', 'wave', 'spawn', 'despawn', 'boss', 'field',
+  'enemy_damage', 'enemy_dead', 'pickup', 'run_end']);
+// What anyone may say, relayed to the rest of the sector untouched. The relay does not model
+// any of it -- see the note at the top of this file about what it does and does not own.
+const RELAYED = new Set(['fire', 'hit_enemy', 'pilot_down', 'pilot_up', 'flight', 'ready', ...HOST_ONLY]);
+
+// Pilots cannot shoot each other. The scope is co-op, so there is no pilot-versus-pilot damage
+// to arbitrate and the relay no longer carries any: an earlier version modelled hull, shields,
+// kills and a respawn timer between pilots, and all of it was surface with nothing behind it
+// once PvP was cut. What remains is simpler and truer -- a pilot reports their own hull and
+// shield on `state`, and the host arbitrates the shared life pool through `pilot_down` and
+// `pilot_up` like any other relayed message.
 
 // RFC 6455 §7.4.1 close codes, the four this uses.
 const CLOSE_NORMAL = 1000;
@@ -229,11 +251,15 @@ const vec = (v, n) => (Array.isArray(v) && v.length === n && v.every((x) => type
   ? v.map(num) : null);
 // Broadcast to every peer, so it is neither markup nor unbounded.
 const callsign = (s) => String(s == null ? '' : s).replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 16);
+const pct = (v) => Math.min(100, Math.max(0, num(v)));
 
 class Sector {
-  constructor(name = 'varan-prime') {
-    this.name = name;
+  constructor(id, { private: priv = false } = {}) {
+    this.id = id;
+    this.private = priv;
     this.players = new Map();
+    this.hostId = null;
+    this.createdAt = Date.now();
     this.intervalId = null;
   }
 
@@ -245,12 +271,17 @@ class Sector {
     this.intervalId.unref();
   }
   _idle() {
-    if (!this.intervalId || this.players.size > 0) return;
-    clearInterval(this.intervalId);
-    this.intervalId = null;
+    if (this.players.size > 0) return;
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+    // The sector tells the relay it is empty rather than the relay polling for it. The first
+    // version swept from the socket's close handler and the sector was still listed afterwards:
+    // that handler is registered in handleUpgrade, before addPlayer registers the sector's own,
+    // so it ran first and swept while the leaver was still counted. Found by the harness.
+    if (this.onEmpty) this.onEmpty(this);
   }
 
   full() { return this.players.size >= MAX_PLAYERS; }
+  isHost(id) { return this.hostId === id; }
 
   addPlayer(client, joinData) {
     const id = 'pilot_' + crypto.randomBytes(4).toString('hex');
@@ -270,6 +301,12 @@ class Sector {
       lastSeen: Date.now(),
     };
 
+    // The first pilot in is the host and stays the host. Nothing hands it on: when the host
+    // leaves the sortie ends, because migrating it means transferring the whole enemy state
+    // mid-fight and failing in ways nobody can reproduce afterwards.
+    const isFirst = this.players.size === 0;
+    if (isFirst) this.hostId = id;
+
     const existing = [];
     for (const [, e] of this.players) {
       existing.push({
@@ -278,7 +315,17 @@ class Sector {
       });
     }
 
-    client.send({ type: 'welcome', id, sector: this.name, tickRate: TICK_RATE_HZ, players: existing });
+    client.send({
+      type: 'welcome',
+      id,
+      sector: this.id,
+      private: this.private,
+      host: isFirst,
+      hostId: this.hostId,
+      tickRate: TICK_RATE_HZ,
+      max: MAX_PLAYERS,
+      players: existing,
+    });
     this.broadcast({
       type: 'player_joined',
       player: { id, callsign: player.callsign, ship: player.ship, pos: player.pos, rot: player.rot },
@@ -309,64 +356,45 @@ class Sector {
       if (vel) p.vel = vel;
       p.throttle = num(msg.throttle);
       p.firing = Boolean(msg.firing);
+      // Self-reported, and correctly so: in co-op nobody else decides how badly you are hurt,
+      // and the only thing lying about it buys you is a wrong number over your own ship.
+      if (msg.hull !== undefined) p.hull = pct(msg.hull);
+      if (msg.shield !== undefined) p.shield = pct(msg.shield);
+      if (msg.score !== undefined) p.score = Math.max(0, Math.min(50e6, num(msg.score)));
+      if (msg.dead !== undefined) p.dead = Boolean(msg.dead);
       return;
     }
 
-    if (msg.type === 'fire') {
-      const pos = vec(msg.pos, 3), dir = vec(msg.dir, 3);
-      if (p.dead || !pos || !dir) return;
-      this.broadcast({ type: 'proj', shooterId: id, weapon: callsign(msg.weapon) || 'pulse', pos, dir }, id);
+    if (msg.type === 'ping') { entry.client.send({ type: 'pong', t: num(msg.t) }); return; }
+
+    // Co-op traffic: relayed, not modelled. The relay has no idea what an enemy is, which is
+    // the point -- the sim lives in the host's browser and this moves bytes for it.
+    if (RELAYED.has(msg.type)) {
+      if (HOST_ONLY.has(msg.type) && !this.isHost(id)) return;
+      msg.from = id;
+      this.broadcast(msg, id);
       return;
     }
-
-    if (msg.type === 'hit') {
-      // Believed, not verified -- see the note at the top of this file. The checks here are the
-      // ones that keep the relay's own state coherent, not ones that keep a client honest.
-      const target = this.players.get(msg.targetId);
-      if (!target || p.dead || target.player.dead || target.player.id === id) return;
-      const t = target.player;
-      const dmg = Math.min(Math.max(num(msg.damage) || 10, 1), 50);
-      const absorbed = Math.min(t.shield, dmg);
-      t.shield -= absorbed;
-      t.hull = Math.max(0, t.hull - (dmg - absorbed));
-      this.broadcast({ type: 'damage', targetId: t.id, attackerId: id, shield: t.shield, hull: t.hull });
-      if (t.hull <= 0) this._kill(entry, target);
-      return;
-    }
-
-    if (msg.type === 'ping') entry.client.send({ type: 'pong', t: num(msg.t) });
-  }
-
-  // A kill fires once. Before this, a dead pilot stayed in the sector at zero hull and every
-  // further hit report re-broadcast the kill and paid the shooter again -- 37 kills and 3700
-  // points off one corpse, in the probe that found it.
-  _kill(killer, victim) {
-    const v = victim.player;
-    v.dead = true;
-    killer.player.score += 100;
-    this.broadcast({
-      type: 'kill',
-      killerId: killer.player.id, killerCallsign: killer.player.callsign,
-      victimId: v.id, victimCallsign: v.callsign,
-      respawnIn: RESPAWN_MS,
-    });
-    setTimeout(() => {
-      // The sector may have emptied, or this pilot may have disconnected, while they were down.
-      if (!this.players.has(v.id)) return;
-      v.dead = false;
-      v.hull = 100;
-      v.shield = 100;
-      v.pos = this._spawn();
-      v.vel = [0, 0, 0];
-      this.broadcast({ type: 'respawn', id: v.id, pos: v.pos, hull: v.hull, shield: v.shield });
-    }, RESPAWN_MS).unref();
   }
 
   removePlayer(id) {
     const entry = this.players.get(id);
     if (!entry) return;
+    const wasHost = this.hostId === id;
     this.players.delete(id);
+    if (wasHost && this.players.size > 0) {
+      // The sortie cannot continue without the browser that was running it. Say so plainly,
+      // then put everyone back on the title screen rather than leaving them flying in a sector
+      // where nothing will ever spawn again.
+      this.broadcast({ type: 'run_end', reason: 'host_left' });
+      for (const [, e] of this.players) e.client.close(CLOSE_NORMAL, 'host left');
+      this.players.clear();
+      this.hostId = null;
+      this._idle();
+      return;
+    }
     this.broadcast({ type: 'player_left', id, callsign: entry.player.callsign });
+    if (this.players.size === 0) this.hostId = null;
     this._idle();
   }
 
@@ -400,6 +428,93 @@ class Sector {
     this.intervalId = null;
     for (const [, entry] of this.players) entry.client.close(CLOSE_NORMAL, 'shutdown');
     this.players.clear();
+    this.hostId = null;
+  }
+}
+
+// ---------------------------------------------------------------- relay
+
+// Owns every sector and the per-address connection count. One of these per process.
+class Relay {
+  constructor() {
+    this.sectors = new Map();
+    this.conns = new Map();
+  }
+
+  get pilots() {
+    let n = 0;
+    for (const [, s] of this.sectors) n += s.players.size;
+    return n;
+  }
+
+  // Public sectors only, and only the two facts the lobby needs. A private sector is absent
+  // from this list entirely: its code is the whole of its privacy, so publishing the code
+  // would be publishing the sector.
+  lobbies() {
+    const out = [];
+    for (const [, s] of this.sectors) {
+      if (s.private) continue;
+      out.push({ sector: s.id, pilots: s.players.size, max: MAX_PLAYERS, since: s.createdAt });
+    }
+    return out.sort((a, b) => b.pilots - a.pilots);
+  }
+
+  _code() {
+    // Collisions are vanishingly unlikely at 32^4 against at most MAX_SECTORS live sectors,
+    // but a retry is two lines and a collision would silently drop someone into a stranger's
+    // sortie, which is exactly the kind of bug nobody reports clearly.
+    for (let i = 0; i < 50; i++) {
+      let c = '';
+      for (let j = 0; j < 4; j++) c += CODE_ALPHA[crypto.randomInt(CODE_ALPHA.length)];
+      if (!this.sectors.has(c)) return c;
+    }
+    return null;
+  }
+
+  _create(priv) {
+    if (this.sectors.size >= MAX_SECTORS) return null;
+    const code = this._code();
+    if (!code) return null;
+    const s = new Sector(code, { private: priv });
+    s.onEmpty = () => { s.destroy(); this.sectors.delete(code); };
+    this.sectors.set(code, s);
+    return s;
+  }
+
+  // Three ways in, in the order a join is checked:
+  //   a named sector   -> that one, if it exists and has room
+  //   create: private  -> a new unlisted sector
+  //   anything else    -> matchmake into the fullest public sector that still has room, so
+  //                       pilots pool together instead of each sitting alone in their own
+  sectorFor(join) {
+    const want = typeof join.sector === 'string' ? join.sector.toUpperCase().slice(0, 4) : null;
+    if (want) {
+      const s = this.sectors.get(want);
+      if (!s) return { error: 'no such sector' };
+      if (s.full()) return { error: 'sector full' };
+      return { sector: s };
+    }
+    if (join.create === 'private') {
+      const s = this._create(true);
+      return s ? { sector: s } : { error: 'no sectors free' };
+    }
+    let best = null;
+    for (const [, s] of this.sectors) {
+      if (s.private || s.full()) continue;
+      if (!best || s.players.size > best.players.size) best = s;
+    }
+    if (best) return { sector: best };
+    const s = this._create(false);
+    return s ? { sector: s } : { error: 'no sectors free' };
+  }
+
+  sweep() {
+    for (const [id, s] of this.sectors) if (s.players.size === 0) { s.destroy(); this.sectors.delete(id); }
+  }
+
+  destroy() {
+    for (const [, s] of this.sectors) s.destroy();
+    this.sectors.clear();
   }
 }
 
@@ -420,9 +535,9 @@ function peerIp(req) {
   return (first || req.socket.remoteAddress || '').trim().replace(/^::ffff:/, '');
 }
 
-function handleUpgrade(req, socket, head, sector, opts = {}) {
+function handleUpgrade(req, socket, head, relay, opts = {}) {
   const origins = opts.origins;
-  const conns = opts.conns;
+  const conns = relay.conns;
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname !== '/ws' && url.pathname !== '/multiplayer') return refuse(socket, 404, 'Not Found');
 
@@ -435,8 +550,7 @@ function handleUpgrade(req, socket, head, sector, opts = {}) {
   if (origins && !(origin && origins.has(origin))) return refuse(socket, 403, 'Forbidden');
 
   const ip = peerIp(req);
-  if (conns && (conns.get(ip) || 0) >= MAX_CONNS_PER_IP) return refuse(socket, 429, 'Too Many Requests');
-  if (sector.full()) return refuse(socket, 503, 'Sector Full');
+  if ((conns.get(ip) || 0) >= MAX_CONNS_PER_IP) return refuse(socket, 429, 'Too Many Requests');
 
   const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
   socket.write([
@@ -448,39 +562,43 @@ function handleUpgrade(req, socket, head, sector, opts = {}) {
   ].join('\r\n'));
   socket.setNoDelay(true);
 
-  if (conns) conns.set(ip, (conns.get(ip) || 0) + 1);
+  conns.set(ip, (conns.get(ip) || 0) + 1);
   const client = new WebSocketClient(socket, head);
   client.on('close', () => {
-    if (!conns) return;
     const n = (conns.get(ip) || 1) - 1;
     if (n > 0) conns.set(ip, n); else conns.delete(ip);
+    // Deferred, and only a safety net: a sector normally reaps itself through onEmpty. This
+    // covers a socket that was handed a freshly created sector and died before it ever joined.
+    setImmediate(() => relay.sweep());
   });
-  // A connection holds no slot in the sector until it says who it is, and a socket that never
+  // A connection holds no slot in any sector until it says who it is, and a socket that never
   // joins is dropped by the idle timeout in the client.
   client.on('message', function onFirstJoin(msg) {
     if (!msg || msg.type !== 'join') return;
     client.removeListener('message', onFirstJoin);
-    if (sector.full()) return client.close(CLOSE_POLICY, 'full');
-    sector.addPlayer(client, msg);
+    const got = relay.sectorFor(msg);
+    // Closed rather than left hanging: the client distinguishes 1008 from a dropped connection
+    // and shows the reason instead of retrying something that will be refused again.
+    if (got.error) return client.close(CLOSE_POLICY, got.error);
+    got.sector.addPlayer(client, msg);
   });
 }
 
 function initMultiplayer(server, opts = {}) {
-  const sector = new Sector(opts.sector || 'varan-prime');
-  const conns = new Map();
+  const relay = new Relay();
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
     try {
-      handleUpgrade(req, socket, head, sector, { origins: opts.origins, conns });
+      handleUpgrade(req, socket, head, relay, { origins: opts.origins });
     } catch (err) {
       console.error('ws upgrade failed', err);
       try { socket.destroy(); } catch { /* already gone */ }
     }
   });
-  return sector;
+  return relay;
 }
 
 module.exports = {
-  WebSocketClient, Sector, handleUpgrade, initMultiplayer,
-  LIMITS: { MAX_FRAME, MAX_MESSAGE, MAX_BUFFER, MAX_PLAYERS, MAX_CONNS_PER_IP, MSG_PER_SEC },
+  WebSocketClient, Sector, Relay, handleUpgrade, initMultiplayer,
+  LIMITS: { MAX_FRAME, MAX_MESSAGE, MAX_BUFFER, MAX_PLAYERS, MAX_SECTORS, MAX_CONNS_PER_IP, MSG_PER_SEC },
 };

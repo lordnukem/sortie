@@ -164,3 +164,27 @@ The modulation matters as much as the spectrum. The old 40 / 40.7 Hz detune beat
 that rose with throttle — a metronome, not turbulence. Each layer is now modulated by its own
 stream of heavily smoothed **noise**: a sine modulator gives a wobble the ear locks onto within a
 second.
+
+## The relay harness
+
+`relay-test.js` drives the co-op relay over real sockets. It needs a server of its own, never
+the live one:
+
+```bash
+DB_PATH=/tmp/t.db PORT=8796 GEO=0 node server/server.js &
+node tools/relay-test.js 8796
+```
+
+Thirty-three checks across sectors and lobbies, the player and address caps, host authority,
+the frame reader's hardening, and the co-op board's plausibility rules.
+
+**Everything in it goes through a socket, because that is where this code's bugs have been.**
+Two were caught here and neither was visible in a diff: a sector that would not reap, because
+the relay's sweep ran from a close handler registered *before* the sector's own and so swept
+while the leaver was still counted; and an `EventEmitter` emitting `'error'` with no listener,
+which throws — a write to a peer that had just vanished failed asynchronously with `EPIPE`, the
+throw landed outside every `try/catch`, and closing a browser tab mid-broadcast killed the API.
+
+**Each client sends its own `X-Forwarded-For`.** That is how the relay sees distinct pilots in
+production, since nginx sets it, and it stops the per-address cap from masking the per-sector
+one — a confusion that had already turned a real test into a skipped one.

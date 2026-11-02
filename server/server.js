@@ -112,6 +112,45 @@ const insert = db.prepare(`INSERT INTO scores
 const topQ = db.prepare(`SELECT name, score, wave, level, created_at, country FROM scores
   ORDER BY score DESC, id ASC LIMIT ?`);
 const rankQ = db.prepare('SELECT COUNT(*) AS n FROM scores WHERE score > ?');
+// ---------------------------------------------------------------- co-op board
+// A separate table, not a column on `scores`. A co-op kill is cheaper than a solo one -- four
+// guns on the same wave -- so the two are not comparable, and the whole point of the difficulty
+// multiplier was to keep one board that means something. Mixing them would quietly undo that.
+//
+// One row per sortie, posted by the host, carrying the team total and who flew it. `flight` is
+// unique so a retry, or a second client posting the same sortie, updates nothing and returns
+// the rank the first post got.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coop_scores (
+    id INTEGER PRIMARY KEY,
+    flight TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    roster TEXT,
+    pilots INTEGER NOT NULL,
+    score INTEGER NOT NULL,
+    wave INTEGER NOT NULL,
+    level TEXT,
+    kills INTEGER NOT NULL DEFAULT 0,
+    shots INTEGER NOT NULL DEFAULT 0,
+    hits INTEGER NOT NULL DEFAULT 0,
+    rocks INTEGER NOT NULL DEFAULT 0,
+    seconds REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    ip TEXT,
+    country TEXT, region TEXT, city TEXT, lat REAL, lon REAL, cc TEXT,
+    ua TEXT, os TEXT, browser TEXT, device TEXT,
+    flags TEXT
+  );
+`);
+const coopInsert = db.prepare(`INSERT INTO coop_scores
+  (flight, name, roster, pilots, score, wave, level, kills, shots, hits, rocks, seconds,
+   created_at, ip, country, region, city, lat, lon, cc, ua, os, browser, device, flags)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+const coopTopQ = db.prepare(`SELECT name, roster, pilots, score, wave, level, created_at, country
+  FROM coop_scores ORDER BY score DESC, id ASC LIMIT ?`);
+const coopRankQ = db.prepare('SELECT COUNT(*) AS n FROM coop_scores WHERE score > ?');
+const coopHasQ = db.prepare('SELECT score FROM coop_scores WHERE flight = ?');
+
 const geoGet = db.prepare('SELECT country, region, city, lat, lon, cc, at FROM geo_cache WHERE ip = ?');
 const geoPut = db.prepare('INSERT OR REPLACE INTO geo_cache (ip, country, region, city, lat, lon, cc, at) VALUES (?,?,?,?,?,?,?,?)');
 
@@ -164,6 +203,31 @@ function judge(r) {
   if (r.seconds > 0 && r.seconds < r.wave * 8) bad.push('too-fast');
   // The richest plausible wave: an ace plus a capital escort plus a generous pile of everything.
   const ceiling = (2000 + r.wave * 14000 + r.kills * 1200 + r.rocks * 150) * (LEVEL_SCORE[r.level] || 1);
+  if (r.score > ceiling) bad.push('score>ceiling');
+  if (r.shots === 0 && r.kills > 0) soft.push('no-shots');
+  if (r.seconds === 0) soft.push('no-clock');
+  return { bad, soft };
+}
+
+// The same shape of plausibility test as judge(), with the one difference that matters: four
+// pilots clear a wave faster and kill more, so both the score ceiling and the floor on how long
+// a wave can take scale with the flight. Without that, a legitimate four-pilot run reads as
+// impossible and a solo one posted as co-op reads as fine.
+function judgeCoop(r) {
+  const bad = [], soft = [];
+  if (!NAME_OK.test(r.name)) bad.push('name');
+  if (r.pilots < 2 || r.pilots > 4) bad.push('pilots-range');
+  if (r.score <= 0 || r.score > 200e6) bad.push('score-range');
+  if (r.wave < 1 || r.wave > WAVE_MAX) bad.push('wave-range');
+  if (r.hits > r.shots) bad.push('hits>shots');
+  if (r.kills > r.shots) bad.push('kills>shots');
+  // Each extra gun shortens a wave, but not without limit: half the solo floor is the fastest
+  // a wave can plausibly go however many people are shooting, because the spawn queue still
+  // has to deliver the ships.
+  const floor = r.wave * 8 * Math.max(0.5, 1 - (r.pilots - 1) * 0.15);
+  if (r.seconds > 0 && r.seconds < floor) bad.push('too-fast');
+  const ceiling = (2000 + r.wave * 14000 + r.kills * 1200 + r.rocks * 150)
+    * (LEVEL_SCORE[r.level] || 1) * r.pilots;
   if (r.score > ceiling) bad.push('score>ceiling');
   if (r.shots === 0 && r.kills > 0) soft.push('no-shots');
   if (r.seconds === 0) soft.push('no-clock');
@@ -358,7 +422,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
 
-  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n, pilots: sector ? sector.players.size : 0 });
+  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n, pilots: relay.pilots, sectors: relay.sectors.size });
 
   if (url.pathname === '/api/scores' && req.method === 'GET') {
     if (!allow('r:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
@@ -396,6 +460,56 @@ const server = http.createServer(async (req, res) => {
       soft.length ? soft.join(',') : null,
     );
     return send(res, 201, { rank: rankQ.get(r.score).n + 1, board: topQ.all(BOARD_KEEP) });
+  }
+
+  // ---- co-op ------------------------------------------------------------
+  if (url.pathname === '/api/lobbies' && req.method === 'GET') {
+    if (!allow('l:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
+    return send(res, 200, { lobbies: relay.lobbies() });
+  }
+
+  if (url.pathname === '/api/coop' && req.method === 'GET') {
+    if (!allow('r:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
+    const limit = Math.min(BOARD_KEEP, Math.max(1, int(url.searchParams.get('limit') || BOARD_PAGE, 1, BOARD_KEEP)));
+    return send(res, 200, { board: coopTopQ.all(limit) });
+  }
+
+  if (url.pathname === '/api/coop' && req.method === 'POST') {
+    if (!allow('w:' + ip, 20, 3600_000)) return send(res, 429, { error: 'too many runs' });
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch { return send(res, 400, { error: 'bad json' }); }
+    // The sortie's own id. Without it a retry after a dropped response would post the run twice,
+    // and a four-pilot flight would have four chances to do it.
+    const flight = String(body.flight || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 48);
+    if (flight.length < 8) return send(res, 400, { error: 'bad flight id' });
+    const already = coopHasQ.get(flight);
+    if (already) return send(res, 200, { rank: coopRankQ.get(already.score).n + 1, board: coopTopQ.all(BOARD_KEEP), duplicate: true });
+    const r = {
+      name: String(body.name || '').toUpperCase().slice(0, 3),
+      roster: String(body.roster || '').replace(/[^A-Za-z0-9 ,_-]/g, '').slice(0, 80),
+      pilots: int(body.pilots, 0, 4),
+      score: int(body.score, 0, 200e6),
+      wave: int(body.wave, 0, WAVE_MAX),
+      level: ['recruit', 'normal', 'veteran', 'ace'].includes(body.level) ? body.level : 'normal',
+      kills: int(body.kills, 0, 4e6),
+      shots: int(body.shots, 0, 4e7),
+      hits: int(body.hits, 0, 4e7),
+      rocks: int(body.rocks, 0, 4e6),
+      seconds: Math.min(86400, Math.max(0, Number(body.seconds) || 0)),
+    };
+    const { bad, soft } = judgeCoop(r);
+    if (bad.length) return send(res, 422, { error: 'implausible', why: bad });
+    const d = describe(req.headers['user-agent']);
+    const geo = await geolocate(ip);
+    coopInsert.run(
+      flight, r.name, r.roster || null, r.pilots, r.score, r.wave, r.level,
+      r.kills, r.shots, r.hits, r.rocks, r.seconds, new Date().toISOString(),
+      ip || null, geo.country || null, geo.region || null, geo.city || null,
+      geo.lat ?? null, geo.lon ?? null, geo.cc || null,
+      d.ua, d.os, d.browser, d.device,
+      soft.length ? soft.join(',') : null,
+    );
+    return send(res, 201, { rank: coopRankQ.get(r.score).n + 1, board: coopTopQ.all(BOARD_KEEP) });
   }
 
   if (url.pathname === '/api/stats' && req.method === 'GET') {
@@ -550,5 +664,5 @@ const server = http.createServer(async (req, res) => {
 // Co-op relay on /ws. It shares this file's origin allowlist rather than keeping its own: a
 // WebSocket handshake is exempt from the same-origin policy, so that list is the only thing
 // standing between the sector and any page on the internet.
-const sector = initMultiplayer(server, { origins: ORIGINS });
+const relay = initMultiplayer(server, { origins: ORIGINS });
 server.listen(PORT, HOST, () => console.log(`sortie-api on http://${HOST}:${PORT} db=${DB_PATH}`));
