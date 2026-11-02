@@ -97,6 +97,21 @@ question with a modifier. And the big prompt resumes the saved run while the qui
 fresh, which is the way round a cabinet works and was inverted the moment the prompt started
 saying CONTINUE RUN.
 
+**The ship turntable is done after all, and the earlier diagnosis was wrong.** Kept below because
+being wrong in a particular way is worth recording: I blamed the lighting. The scene's lights are
+a hemisphere and two directionals, which light by *direction* rather than distance, so the ship
+was lit wherever it was parked. It had been rendering dead centre the whole time -- behind the
+selection cards, which sat exactly there at 84% opacity. Moving the controls to the bottom of the
+screen and raising the ship in frame was the entire fix; no lighting work was needed to make it
+appear, only to make it dramatic.
+
+The hull page is now the ship: a banked, nose-up presentation at close range with a key light
+that exists only on that page, the three names as a row beneath it, and the model swapping live
+as you pick. A hull presented square to the camera reads as a diagram; rolled over and pitched
+back it reads as a fighter someone is about to get into.
+
+What follows is the note written when it was still broken.
+
 **The ship turntable is not done.** It was the headline of "graphics ala arcade" and it is the one
 thing here that does not work. The ship parks and the camera arrives — measured, not assumed: the
 visibility flag is true, the model has its one child, the pose is reached — but the hull renders
