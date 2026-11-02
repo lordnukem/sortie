@@ -6202,6 +6202,13 @@ function showFlow(i) {
 }
 const flowOpen = () => showFlow(0);
 const flowExit = () => showFlow(-1);
+// Closing the flow without rebuilding the landing page behind it: used when a sortie starts,
+// where refreshing a title nobody is about to see would also re-fetch both leader boards.
+function flowHide() {
+  flowAt = -1;
+  for (const id of FLOW) $(id).hidden = true;
+  playerShip.visible = false;
+}
 function flowNext() {
   const pages = flowPages();
   if (flowAt >= pages.length - 1) { onStart(); return; }
@@ -6273,6 +6280,7 @@ function clearWorld() {
 }
 function startGame() {
   audioUnlock();
+  flowHide();
   // A wheel left open would swallow every keypress in the next sortie: the keydown handler gives
   // it the keyboard outright, so Space would confirm the last run's score instead of firing.
   closeEntry();
@@ -6319,6 +6327,7 @@ function startGame() {
 // have started anyway.
 function continueGame(r) {
   audioUnlock();
+  flowHide();
   setLevel(r.level || 'normal');
   aiWings = r.ai | 0;
   closeEntry();
@@ -7086,7 +7095,7 @@ window.addEventListener('keydown', (e) => {
   }
   // The flow owns Escape and Backspace while it is up, and the code wheel owns letters on the
   // one page that has it. Checked before the reading views, which are a different router.
-  if (flowAt >= 0 && !view) {
+  if (state === 'title' && flowAt >= 0 && !view) {
     if (e.code === 'Escape') { flowExit(); return; }
     if (e.code === 'Backspace') { flowAt === 0 ? flowExit() : flowBack(); return; }
     if (flowPages()[flowAt] === 'scLink' && linkPick === 'code') {
@@ -7429,7 +7438,7 @@ function readInput(dt) {
     // The flow is a cabinet, so it answers to a stick and two buttons: left and right move
     // between the choices on this page, A takes the one highlighted and goes on, B steps back.
     // Without this the pages are mouse-only, which is the one thing an arcade screen must not be.
-    if (flowAt >= 0) {
+    if (state === 'title' && flowAt >= 0) {
       const fy = -(gp.axes[1] || 0), fx = gp.axes[0] || 0;
       const up = now[12] || fy > 0.6, down = now[13] || fy < -0.6;
       const left = now[14] || fx < -0.6, right = now[15] || fx > 0.6;
