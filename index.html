@@ -2994,7 +2994,7 @@ const SHIPS = {
   // beam; now the beam is the threat and the hull is what makes you deal with it first. Roughly
   // twice the armour, a beam it can bring to bear from further out and re-arm far sooner, and a
   // grip that takes hold in about two thirds of the time.
-  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 58, r: 6.5, speed: 27, turn: 0.86, fireRate: 0.72, dmg: 20, pts: 750,  ptsForm: 260, color: 0x22e07a },
+  warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 58, r: 6.5, speed: 27, turn: 0.86, fireRate: 0.72, dmg: 16, pts: 750,  ptsForm: 260, color: 0x22e07a, heavy: true },
   raider: { tag: 'RAIDER', plural: 'raider saucers', hp: 9,  r: 4.2, speed: 28, turn: 1.0,  fireRate: 1.1,  dmg: 12,  pts: 1000, ptsForm: 1000, color: 0x9fffd0 },
   // The hive ship. `hp` is the CORE only -- the four pods are tracked separately and gate access
   // to it, so the real health pool is 4 x 35 + 80. It turns slowly enough to be out-flown, which
@@ -3006,7 +3006,12 @@ const SHIPS = {
   ace:    { tag: 'ACE',    plural: 'aces',           hp: 150, r: 4.6, speed: 46, turn: 1.62, fireRate: 0.32, dmg: 16, pts: 8000, ptsForm: 8000, color: 0xff8a3d },
   // The capital escort: slow, heavily armoured, hits hard, and cannot turn with anything. It
   // exists to make a boss wave feel like a fleet action rather than a one-on-one.
-  capital:{ tag: 'SABRE',  plural: 'capital escorts', hp: 220, r: 17, speed: 15, turn: 0.3, fireRate: 1.2, dmg: 22, pts: 3000, ptsForm: 3000, color: 0x22e07a },
+  // 220 hull against a bolt that does 1 was 220 hits: about twenty-four seconds of unbroken,
+  // perfectly-placed fire, with no weak point to aim at and a hive ship shooting at you
+  // throughout. Not impossible, but indistinguishable from it. Halved, and `heavy` makes
+  // missiles count properly against it -- armour should be answered with ordnance rather than
+  // with a held trigger.
+  capital:{ tag: 'SABRE',  plural: 'capital escorts', hp: 110, r: 17, speed: 15, turn: 0.3, fireRate: 1.2, dmg: 18, pts: 3000, ptsForm: 3000, color: 0x22e07a, heavy: true },
 };
 
 // Asteroids: lumpy icosahedra; displacement depends only on position so shared corners stay welded.
@@ -4442,7 +4447,16 @@ function enemyFire(e, aim, anyDirection = false) {
   _fo.copy(e.obj.position);
   if (!anyDirection) _fo.addScaledVector(_ef, e.r);
   _fd.copy(aim).sub(_fo).normalize();
-  const spread = 0.02 + 0.05 * (1 - diff());
+  // The Swarm solves a perfect intercept in leadPoint() and then fired it with 0.02 radians of
+  // jitter, which at 340 m is about a metre of error against a 3.4 m target: effectively
+  // hitscan. Eight drones each landing every shot is 150 damage a second against a 200 point
+  // pool, which is the whole of "too good and deadly".
+  //
+  // The floor is what matters, not the slope. At 0.05 rad the error cone is ~17 m at maximum
+  // range and ~2.5 m up close, so a knife fight stays lethal while long-range plinking stops
+  // being a death sentence -- which is the right way round, and rewards closing or breaking
+  // rather than punishing both equally.
+  const spread = 0.05 + 0.05 * (1 - diff());
   _fd.x += rand(-spread, spread); _fd.y += rand(-spread, spread); _fd.z += rand(-spread, spread);
   spawnBolt(_fo, _fd.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat() * LEVEL.bite);
   const efD = _fo.distanceTo(player.rig.position);
@@ -4456,7 +4470,10 @@ function damageEnemy(e, dmg, credit, at, podMult) {
   // which is what a relay can offer -- see the note at the top of server/multiplayer.js.
   if (!hosting()) { net.send('hit_enemy', { nid: e.nid, dmg: Math.round(dmg) }); return; }
   if (e.type === 'boss') { damageBoss(e, dmg, credit, at, podMult); return; }
-  e.hp -= dmg;
+  // podMult is only ever passed by a missile. Against a heavy hull it now means what it means
+  // against a hive pod: ordnance is how you open armour, and six missiles are worth carrying to
+  // a capital escort instead of being a rounding error on its health bar.
+  e.hp -= e.d.heavy && podMult ? dmg * podMult : dmg;
   e.flash = 0.1;
   if (at) for (let i = 0; i < 8; i++) emit(at, rand(-12, 12), rand(-12, 12), rand(-12, 12), _exc.setRGB(4, 3, 1.5), 0.35);
   if (e.hp <= 0) { killEnemy(e, credit); return; }
@@ -5594,7 +5611,10 @@ const bossTier = (n) => 1 + Math.max(0, n / BOSS_EVERY - 1) * 0.3;
 // How hard enemy fire bites, by how deep into the sortie you are. diff() is capped at wave 9,
 // so on its own the game stopped getting more dangerous there -- a drone needed 33 hits to
 // strip a full bar at wave 9 and still needed 33 at wave 30. This keeps climbing.
-const threat = () => 1 + Math.max(0, wave - 1) * 0.05;
+// Capped, and shallower. At 5% a wave with no ceiling this reached 1.95x by wave 20 and kept
+// going, on top of diff() already being at its maximum from wave 9 -- two multipliers climbing
+// past the point where either was still tuned.
+const threat = () => Math.min(1.5, 1 + Math.max(0, wave - 1) * 0.035);
 // What running into something costs. Ramming used to be the efficient play: a flat 30 damage
 // killed anything outright, so a full health bar was worth roughly seven free kills. Now the
 // cost scales with what you hit, and the heavy ships simply survive being rammed.
