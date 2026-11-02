@@ -441,7 +441,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // The socket lives in its own file; see the note at the top of net.js for why. The ?v= is
 // bumped by hand on every change to it, the same discipline as CACHE in sw.js, because a
 // module served under an unchanged URL is how eleven ships once arrived as five.
-import { net } from './net.js?v=2';
+import { net } from './net.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -3712,16 +3712,38 @@ function spawnField(count) {
   const pp = player.rig.position;
   const at = (lo, hi) => pp.clone().addScaledVector(V(rand(-1, 1), rand(-0.6, 0.6), rand(-1, 1)).normalize(), rand(lo, hi));
   const drift = (sp) => V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(sp);
-  for (let i = 0; i < count; i++) {
-    spawnRock(3, at(160, 430), drift(rand(...ROCKS[3].speed)), true);
-  }
+  // Sent as a list, once, and then each client flies its own copy. The field is scenery that
+  // drifts predictably: putting it in the 20 Hz snapshot would multiply the largest message on
+  // the wire for rocks that nobody is going to disagree about. Whose asteroids break first can
+  // differ between clients, and that is a cosmetic difference, not a broken sortie -- rocks
+  // never hold a wave open, which is why this is safe where the Swarm would not be.
+  const made = [];
+  const rock = (p, v) => { spawnRock(3, p, v, true); made.push(['r', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z)]); };
+  const mine = (p, v) => { spawnMine(p, v, true); made.push(['m', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z)]); };
+  const crate = (k, p, v) => { spawnPickup(k, p, v, true); made.push(['p', r2(p.x), r2(p.y), r2(p.z), r2(v.x), r2(v.y), r2(v.z), k]); };
+
+  for (let i = 0; i < count; i++) rock(at(160, 430), drift(rand(...ROCKS[3].speed)));
   // Mines come with the rocks, not instead of them: the field is cover worth using and a reason
   // to look where you are going, and it should be both at once.
   const mineN = Math.min(7, 1 + Math.floor(count / 2));
-  for (let i = 0; i < mineN; i++) spawnMine(at(150, 420), drift(rand(1.5, 5)), true);
+  for (let i = 0; i < mineN; i++) mine(at(150, 420), drift(rand(1.5, 5)));
   // And something to find in there.
   const crates = 1 + Math.floor(count / 4);
-  for (let i = 0; i < crates; i++) spawnPickup(pickKind(), at(170, 400), drift(rand(1, 4)), true);
+  for (let i = 0; i < crates; i++) crate(pickKind(), at(170, 400), drift(rand(1, 4)));
+
+  if (net.connected && net.host) net.send('field', { f: made });
+}
+// The same field, built from the host's list. clearField() first, because a guest that has been
+// through a wave already is still carrying the last one.
+function applyField(rows) {
+  clearField();
+  for (const row of rows || []) {
+    const [kind, px, py, pz, vx, vy, vz, extra] = row;
+    const p = V(px, py, pz), v = V(vx, vy, vz);
+    if (kind === 'r') spawnRock(3, p, v, true);
+    else if (kind === 'm') spawnMine(p, v, true);
+    else if (kind === 'p') spawnPickup(PICKUPS[extra] ? extra : pickKind(), p, v, true);
+  }
 }
 let banner = { text: '', sub: '', t: 0, life: 0 };
 let comms = [];
@@ -4215,14 +4237,15 @@ function damageEnemy(e, dmg, credit, at, podMult) {
 function killEnemy(e, credit) {
   if (e.dead) return;
   e.dead = true;
+  const pts = e.state === 'form' ? e.d.ptsForm : e.d.pts;
   if (net.connected && net.host) {
     const p = e.obj.position;
-    net.send('enemy_dead', { nid: e.nid, p: [r2(p.x), r2(p.y), r2(p.z)], type: e.type });
+    // `by` is who gets paid. When a guest's hit report finished the ship, creditTo names them
+    // and this message is the only way they will ever hear about it -- their own client never
+    // saw the ship die, because it does not run the Swarm.
+    net.send('enemy_dead', { nid: e.nid, p: [r2(p.x), r2(p.y), r2(p.z)], type: e.type, by: creditTo, pts });
   }
-  if (credit) {
-    addScore(e.state === 'form' ? e.d.ptsForm : e.d.pts);
-    kills++;
-  }
+  if (credit) { addScore(pts); kills++; }
   // What a wreck leaves behind, by how much trouble it was. A capital ship always drops two.
   const DROP = { drone: 0.05, lancer: 0.08, warden: 0.3, raider: 0.3, ace: 1, capital: 1, boss: 1 };
   const odds = DROP[e.type] ?? 0.05;
@@ -4920,6 +4943,9 @@ function updateBolts(dt) {
     b.m.position.copy(b.pos);
     b.life -= dt;
     if (b.life <= 0) { b.dead = true; continue; }
+    // Someone else's shot: theirs to resolve, ours only to draw. Skipping every collision test
+    // is the whole of friendly fire being off, too -- a wingman's tracer cannot touch you.
+    if (b.owner === 'peer') continue;
     if (b.owner === 'enemy') {
       if (player.alive && player.inv <= 0 && segHit(b.prev, b.pos, player.rig.position, 3.4)) { b.dead = true; damagePlayer(b.dmg, b.prev); continue; }
       if (!b.whiz && player.alive && segHit(b.prev, b.pos, player.rig.position, 9)) { b.whiz = true; const p = panAt(b.pos); sfx.whiz(p, -p); }
@@ -5129,7 +5155,14 @@ function updatePlayer(dt, inp) {
     player.gunSide = -player.gunSide;
     _pg.set(player.gunSide * 1.0, 0.1, -2.6).applyQuaternion(player.rig.quaternion).add(player.rig.position);
     const aim = _pf.clone().multiplyScalar(250).add(player.rig.position);
-    spawnBolt(_pg, aim.sub(_pg).normalize(), BOLT_SPEED, 'player', 1);
+    const dir = aim.sub(_pg).normalize();
+    spawnBolt(_pg, dir, BOLT_SPEED, 'player', 1);
+    // The flight sees the shot. Only the tracer travels: each client resolves its own fire and
+    // nobody else's, so a replicated bolt is scenery. That is not a shortcut -- it is the only
+    // arrangement where two clients cannot both decide they killed the same ship.
+    if (net.connected) {
+      net.send('fire', { p: [r2(_pg.x), r2(_pg.y), r2(_pg.z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)] });
+    }
     shots++;
     sfx.laser(player.gunSide * 0.3);
   }
@@ -5204,7 +5237,10 @@ function loseShip(msg) {
   player.target = null;
   player.speed = 0;
   player.vel.set(0, 0, 0);
-  lives--;
+  // The fighters on the Halcyon are one pool, not one each. A guest says it lost a ship and
+  // the host does the arithmetic, so four pilots cannot each spend the same last fighter.
+  if (hosting()) { lives--; if (net.connected) net.send('lives', { n: lives }); }
+  else net.send('pilot_down', {});
   rumble(600, 1);
   comm('HALCYON', msg, 'warn');
   const lostLine = lives <= 0
@@ -5472,7 +5508,13 @@ function updateFlow(dt) {
     if (s.type === 'raider') spawnRaider(); else spawnFlight(s.type, s.count);
   }
   if (!player.alive && !player.capturing) {
-    if (lives <= 0) { overT -= dt; if (overT <= 0) gameOver(); }
+    if (lives <= 0) {
+      overT -= dt;
+      // An empty pool is not the end of the sortie while someone is still flying on the last
+      // fighter out. Only the host calls it, and only once nobody is left up -- a guest sitting
+      // dead with the pool empty waits to be told, or four pilots would end the run four times.
+      if (overT <= 0 && (!net.connected || (net.host && !flightFlying()))) gameOver();
+    }
     else {
       player.respawnT -= dt;
       if (player.respawnT <= 0) {
@@ -5580,6 +5622,17 @@ net.on('player_joined', (m) => {
   if (net.host && waveActive) net.send('wave', { n: wave, kind: waveKind(wave) });
 });
 net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+// Another pilot's tracer. BOLT_SPEED without their velocity added -- the bolt they see has it
+// and this one will not match theirs exactly, but it is scenery either way, and a tracer that
+// matches the direction they fired reads correctly from any angle.
+net.on('fire', (m) => {
+  if (!Array.isArray(m.p) || !Array.isArray(m.d)) return;
+  _gp.set(m.p[0], m.p[1], m.p[2]);
+  _gd.set(m.d[0], m.d[1], m.d[2]);
+  if (_gd.lengthSq() < 0.5) return;
+  spawnBolt(_gp, _gd.normalize(), BOLT_SPEED, 'peer', 0);
+});
+
 // A guest's shots land on the host's copy of the Swarm, which is the only copy that counts.
 // Clamped, because the number arrives from a browser; believed, because this is a relay and
 // the people in your sector are people you invited.
@@ -5587,15 +5640,46 @@ net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.
 // Credit is deliberately withheld here: awarding it to the host would hand them every guest's
 // kills, and awarding it properly means paying the pilot who reported the hit, which needs a
 // message back. That is the scoring item, not this one.
+// The pool, kept by whoever is hosting. A guest never touches `lives` itself: it reports a
+// loss and takes the number back, which is the only way the count stays one count.
+net.on('pilot_down', (m) => {
+  if (!net.host) return;
+  lives--;
+  net.send('lives', { n: lives });
+  // overT idles at -1, so Math.min would have started the countdown already expired and ended
+  // the sortie the instant the pool emptied.
+  if (lives <= 0 && overT < 0) overT = 3.5;
+});
+net.on('lives', (m) => {
+  if (net.host) return;
+  lives = Math.max(0, Math.round(Number(m.n) || 0));
+});
+
 net.on('hit_enemy', (m) => {
   if (!net.host) return;
   const e = enemies.find((x) => x.nid === m.nid && !x.dead);
-  if (!e) return;
+  // A report naming a ship this host does not have is normal in flight -- it died in the time
+  // the report was in the air -- but a flood of them means the two worlds have come apart,
+  // which is worth being able to see rather than guess at.
+  if (!e) { console.warn('hit report miss: nid', JSON.stringify(m.nid), typeof m.nid, 'have:', enemies.map((x) => `${JSON.stringify(x.nid)}${x.dead ? '(dead)' : ''}`).join(',')); return; }
+  // Who to pay if this is the shot that finishes it. Set around the call and cleared after,
+  // because killEnemy can run several frames of consequences deep and reads it on the way.
+  creditTo = m.from || null;
   damageEnemy(e, clamp(Number(m.dmg) || 0, 1, 400), false);
+  creditTo = null;
 });
 
 // A guest takes the wave from the host rather than deciding it. Objectives are rebuilt locally
 // from the same two numbers, so both pilots see the same goals without those being on the wire.
+// Coming back from a drop as a guest when we left as the host. The sortie was running in this
+// browser and is not any more -- the sector was rebuilt, or someone else took it. Say so and
+// end it, because the alternative is a pilot flying in a world nothing is simulating.
+net.on('role', (m) => {
+  if (m.host || !m.was) return;
+  comm('HALCYON', 'Lost the flight channel. Another lead has the sector.', 'enemy');
+  if (state === 'play') gameOver();
+});
+net.on('field', (m) => { if (!net.host) applyField(m.f); });
 net.on('wave', (m) => {
   if (net.host) return;
   wave = m.n;
@@ -5611,6 +5695,8 @@ net.on('wave', (m) => {
 // looks like a kill rather than a ship blinking out.
 net.on('enemy_dead', (m) => {
   if (net.host) return;
+  // Paid for a kill this client never watched happen.
+  if (m.by && net.self && m.by === net.self.id) { addScore(Number(m.pts) || 0); kills++; }
   const d = SHIPS[m.type];
   _gp.set(m.p[0], m.p[1], m.p[2]);
   // explode() already makes the noise, with the right distance falloff; calling sfx.boom here
@@ -5618,6 +5704,11 @@ net.on('enemy_dead', (m) => {
   explode(_gp, d ? d.color : 0xff8844, d ? d.r / 3.2 : 1, m.type === 'warden' || m.type === 'boss');
 });
 net.on('run_end', (m) => {
+  if (m.reason === 'lost') {
+    // The pool is empty and the last of the flight is down. The host has already called it.
+    if (!net.host && state === 'play') gameOver();
+    return;
+  }
   if (m.reason !== 'host_left') return;
   comm('HALCYON', 'Flight lead has jumped out. Sortie scrubbed.', 'enemy');
   clearPeers();
@@ -5633,6 +5724,7 @@ net.on('run_end', (m) => {
 // no socket, and co-op is the same game with an audience rather than a second mode to keep in
 // step with the first.
 let nidSeq = 0;
+let creditTo = null;   // the pilot to pay for the kill currently being resolved
 const hosting = () => !net.connected || net.host;
 
 // Round on the way out. Two decimals is a centimetre at this scale and three is finer than any
@@ -5668,6 +5760,7 @@ function updateSwarm() {
       _gq.set(s0.rot[0], s0.rot[1], s0.rot[2], s0.rot[3]);
       e = makeEnemy(f.type, _gp, _gq);
       e.nid = nid;                                 // the host's id wins; ours was a local guess
+      e.mirror = true;                             // built from the wire, so safe to prune by it
     }
     e.hp = f.hp;
     e.state = f.st;
@@ -5681,10 +5774,13 @@ function updateSwarm() {
   // Gone from the host's snapshot means gone. A ship that the death event missed vanishes
   // quietly rather than living for ever, which is the right way round: a lost bang is a
   // cosmetic fault, a ship only one player can see is a broken sortie.
-  for (const e of enemies) if (e.nid && !net.foes.has(e.nid)) { e.dead = true; scene.remove(e.obj); disposeObj(e.obj); }
+  // Only ships that came off the wire are pruned by it. A ship this client built itself is
+  // not the host's to remove, and the version that pruned every enemy wiped a whole wave the
+  // moment a reconnect turned the host into a guest.
+  for (const e of enemies) if (e.mirror && !net.foes.has(e.nid)) { e.dead = true; scene.remove(e.obj); disposeObj(e.obj); }
   if (player.target && player.target.dead) player.target = null;
 }
-const _gp = V(), _gq = new THREE.Quaternion();
+const _gp = V(), _gd = V(), _gq = new THREE.Quaternion();
 
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
@@ -5903,7 +5999,14 @@ function confirmEntry() {
   });
 }
 
+// Is anyone from the flight still in the fight? Their own `dead` flag, self-reported on state,
+// which in co-op is the only party that knows.
+function flightFlying() {
+  for (const [, p] of net.peers) if (!p.dead) return true;
+  return false;
+}
 function gameOver() {
+  if (net.connected && net.host) net.send('run_end', { reason: 'lost' });
   state = 'over';
   cockpit.visible = false;
   ping('end', { ended: 'dead', deaths: 1 });

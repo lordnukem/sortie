@@ -246,3 +246,23 @@ relay's 64 KiB frame cap.
 roughly one or two frames a second, which throttles everything the game sends with it. Taking a
 screenshot forces a frame, so a loop of screenshots is how a test drives the game at a usable
 rate. Snapshot counts measured this way are a floor, not the real rate.
+
+### Why the ghost shoots the furthest ship, and what it cannot test
+
+`--attack` makes the ghost report hits against the host's Swarm, and `--swarm` makes it pretend
+to host one and credit whatever is reported to it. Between them the two directions of the
+damage path can be exercised without ever running two browsers.
+
+**Against a headless host, drones ram the player and die within a second of spawning.** The
+first version of this test aimed at the first ship in the snapshot and reported zero kills for
+an hour, which read exactly like a broken credit path and was only ever a slow shooter: by the
+time a report crossed the wire the ship had already killed itself on an idle pilot. Two things
+came out of chasing it. The ghost now picks the ship **furthest from the lead pilot**, which is
+the one that survives long enough for a reported hit to be the shot that finishes it. And when
+nothing lives long enough to die at all, the honest signal is not the kill but the **hp field in
+the next snapshot** — a reported hit that moves the host's own number for that ship proves the
+path whether or not anything dies at the end of it.
+
+What this rig still cannot reach is a browser *receiving* credit while a browser hosts, because
+that needs two of them at once. The receive side is proven with a ghost standing in for the
+browser, and the figure to look for is `credited N kills worth M`.

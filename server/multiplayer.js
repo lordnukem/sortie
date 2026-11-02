@@ -46,7 +46,7 @@ const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // no O/0, no I/1 -- the
 // What a guest may not say. The host owns the Swarm, the wave and the run; a guest claiming any
 // of it is either broken or trying, and in both cases the message is dropped rather than relayed.
 const HOST_ONLY = new Set(['enemies', 'wave', 'spawn', 'despawn', 'boss', 'field',
-  'enemy_damage', 'enemy_dead', 'pickup', 'run_end']);
+  'enemy_damage', 'enemy_dead', 'pickup', 'lives', 'run_end']);
 // What anyone may say, relayed to the rest of the sector untouched. The relay does not model
 // any of it -- see the note at the top of this file about what it does and does not own.
 const RELAYED = new Set(['fire', 'hit_enemy', 'pilot_down', 'pilot_up', 'flight', 'ready', ...HOST_ONLY]);

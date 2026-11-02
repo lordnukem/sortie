@@ -299,8 +299,14 @@ export class Net {
   // --- inbound ------------------------------------------------------------
   _inbound(msg) {
     switch (msg.type) {
-      case 'welcome':
+      case 'welcome': {
+        // A reconnect can come back with a different role: the sector may have been reaped and
+        // rebuilt, or someone else may have taken it while we were away. The game has to be
+        // told, because a client that was simulating the Swarm and is now a guest no longer
+        // owns the world it is holding.
+        const was = this.self && this.self.host;
         this.self = { id: msg.id, callsign: this._want.callsign, host: !!msg.host };
+        if (was !== undefined && was !== this.self.host) this._emit('role', { host: this.self.host, was });
         this.sector = msg.sector;
         this.peers.clear();
         this.foes.clear();
@@ -309,6 +315,7 @@ export class Net {
         this._emit('status', { status: this.status });
         if (this._resolve) { this._resolve(true); this._resolve = null; }
         break;
+      }
 
       case 'player_joined':
         if (msg.player && msg.player.id !== (this.self && this.self.id)) {

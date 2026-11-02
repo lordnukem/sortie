@@ -22,6 +22,14 @@ const LEAD = Number(arg('lead', 2.2));   // seconds ahead of the lead ship to ta
 // way to test the guest half without a second browser, and two WebGL contexts under a software
 // renderer do not survive that. The ships fly circles; the point is the wire, not the AI.
 const SWARM = Number(arg('swarm', 0));
+// --attack makes the ghost report hits on whatever the host says is out there, which is the
+// only way to test that kill credit reaches the pilot who actually shot.
+const ATTACK = process.argv.includes('--attack');
+const DMG = Number(arg('dmg', 60));
+// Spawn hp per type, so a drop can be told from a fresh ship. Only used for the report.
+const seenHp = new Map();
+let hpDropped = 0;
+let paid = 0, credited = 0, sawField = 0, lastLives = null, firesSeen = 0, sentHits = 0;
 let gotTicks = 0, gotFoes = 0, foeBytes = 0, lastFoeCount = 0, maxFoeCount = 0, sawWave = null;
 const ORIGIN = arg('origin', 'http://127.0.0.1:8777');
 
@@ -79,10 +87,53 @@ sock.on('data', (chunk) => {
       // Counted rather than printed: at 20 Hz the log would be the only thing anyone sees.
       gotFoes++; lastFoeCount = (m.e || []).length; foeBytes += body.length;
       if (lastFoeCount > maxFoeCount) maxFoeCount = lastFoeCount;
+      // Shoot the first thing on the list, hard, so something dies while we are watching.
+      // Report against every ship in the snapshot, not just the first. An idle host player is
+      // rammed by drones within a second or two of them spawning, so a report aimed at one
+      // named ship loses a race it cannot win -- the first attempt at this test looked like a
+      // broken credit path and was only ever a slow shooter.
+      for (const row of m.e || []) {
+        const nid = row[0], hp = row[9];
+        const prev = seenHp.get(nid);
+        // The decisive signal when nothing lives long enough to die: did our report move the
+        // host's own number for that ship?
+        if (prev !== undefined && hp < prev) hpDropped++;
+        seenHp.set(nid, hp);
+      }
+      // Shoot the ship furthest from the lead pilot. The near ones ram an idle host and die to
+      // the collision before a report can reach it, so aiming at them tests nothing; the far
+      // one survives long enough for a reported hit to be the shot that finishes it.
+      if (ATTACK && (m.e || []).length) {
+        const c = lead || [0, 28, -550];
+        let best = null, bestD = -1;
+        for (const row of m.e) {
+          const d = (row[2] - c[0]) ** 2 + (row[3] - c[1]) ** 2 + (row[4] - c[2]) ** 2;
+          if (d > bestD) { bestD = d; best = row; }
+        }
+        sentHits++;
+        say({ type: 'hit_enemy', nid: best[0], dmg: DMG });
+      }
     } else if (m.type === 'wave') {
       sawWave = m; console.log(` <- wave ${m.n} (${m.kind})`);
     } else if (m.type === 'enemy_dead') {
-      console.log(` <- enemy_dead nid=${m.nid} ${m.type}`);
+      const mine = m.by && m.by === id;
+      if (mine) { credited++; paid += Number(m.pts) || 0; }
+      console.log(` <- enemy_dead nid=${m.nid} by=${m.by || '-'} pts=${m.pts || 0}${mine ? '  <= MINE' : ''}`);
+    } else if (m.type === 'hit_enemy') {
+      // Only in --swarm mode, where this ghost is pretending to host. Credit whoever reported
+      // the hit and tell them the ship died. It is the one way to exercise a guest's
+      // receive-credit path, which a browser can never reach while it is the host itself.
+      if (SWARM > 0) {
+        console.log(` <- hit_enemy from ${String(m.from).slice(-6)} -> crediting 500`);
+        say({ type: 'enemy_dead', nid: m.nid, p: [0, 28, -550], type_: 'drone', by: m.from, pts: 500 });
+      }
+    } else if (m.type === 'field') {
+      sawField = (m.f || []).length;
+      console.log(` <- field, ${sawField} objects`);
+    } else if (m.type === 'lives') {
+      lastLives = m.n; console.log(` <- lives ${m.n}`);
+    } else if (m.type === 'fire') {
+      firesSeen++;
     } else if (m.type === 'tick') {
       gotTicks++;
       // Fly formation on whoever else is here. The tick carries every pilot's position, so the
@@ -153,6 +204,10 @@ const r3 = (n) => Math.round(n * 1000) / 1000;
 setTimeout(() => {
   console.log(`done -- ticks ${gotTicks}, enemy snapshots ${gotFoes}`
     + (gotFoes ? `, most ships in one ${maxFoeCount}, mean ${Math.round(foeBytes / gotFoes)} bytes` : '')
-    + (sawWave ? `, wave ${sawWave.n}` : ''));
+    + (sawWave ? `, wave ${sawWave.n}` : '')
+    + (sawField ? `, field ${sawField} objects` : '')
+    + (firesSeen ? `, ${firesSeen} tracers` : '')
+    + (lastLives !== null ? `, lives -> ${lastLives}` : '')
+    + (ATTACK ? `, sent ${sentHits} hit reports, ${hpDropped} hp drops observed, credited ${credited} kills worth ${paid}` : ''));
   process.exit(0);
 }, SECONDS * 1000);
