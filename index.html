@@ -254,6 +254,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       </div>
     </div>
     <nav class="links">
+      <a class="link" href="#flight">Co-op</a>
       <a class="link" href="#controls">Controls</a>
       <a class="link" href="#about">About</a>
       <a class="link" href="stats.html">Records</a>
@@ -370,6 +371,53 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
   </section>
 </div>
 
+<div class="overlay" id="flight" hidden>
+  <section class="brief">
+    <p class="eyebrow">Flight channel</p>
+    <h2 class="name">CO-OP<span>Fly it together</span></h2>
+    <p class="lede">Up to four pilots against the same Swarm. One of you runs the fight and the
+      others fly it &mdash; the carrier&rsquo;s reserve fighters are shared, so the sortie ends when the
+      last of them is gone.</p>
+
+    <div class="panel" id="flightNow" hidden>
+      <h2>Your flight</h2>
+      <p class="sub" id="flightSector"></p>
+      <p class="note" id="flightRoster"></p>
+      <div class="actions">
+        <button class="launch ghost" id="flightLeave" type="button">Leave the flight</button>
+      </div>
+    </div>
+
+    <div class="panel" id="flightJoin">
+      <h2>Join</h2>
+      <div class="actions">
+        <button class="launch" id="flightQuick" type="button">Quick match</button>
+        <button class="launch ghost" id="flightNew" type="button">Open a private flight</button>
+      </div>
+      <p class="note" id="flightHint">Quick match puts you in with whoever is already up. A private
+        flight is unlisted &mdash; only the four characters it gives you will reach it.</p>
+    </div>
+
+    <div class="panel" id="flightOpen">
+      <h2>Flights looking for pilots</h2>
+      <div class="difflever" id="flightList"></div>
+    </div>
+
+    <div class="panel" id="flightByCode">
+      <h2>Someone gave you a code</h2>
+      <div class="initials" id="flightCode"></div>
+      <p class="note">Type it, or use the arrows. A link works too: anyone can send you
+        <b>sortiethegame.com/?flight=CODE</b> and it opens straight into their flight.</p>
+    </div>
+
+    <div class="actions">
+      <button class="launch" id="flightBack" type="button">Back</button>
+      <p class="sub">Esc or Back</p>
+    </div>
+    <nav class="links"><a class="link" href="#controls">Controls</a><a class="link" href="#about">About</a></nav>
+  </section>
+</div>
+
 <div class="overlay" id="pause" hidden>
   <section class="brief">
     <p class="eyebrow">Flight paused</p>
@@ -442,7 +490,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // The socket lives in its own file; see the note at the top of net.js for why. The ?v= is
 // bumped by hand on every change to it, the same discipline as CACHE in sw.js, because a
 // module served under an unchanged URL is how eleven ships once arrived as five.
-import { net } from './net.js?v=3';
+import { net } from './net.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -461,7 +509,7 @@ const MAX_SPEED = 70;
 const BOLT_SPEED = 330;
 const ENEMY_BOLT_SPEED = 200;
 const CARRIER_POS = V(0, -20, 0);
-const VIEW_IDS = ['controls', 'about'];  // the reading views, needed both here and by the router below
+const VIEW_IDS = ['controls', 'about', 'flight'];  // the routed views, needed here and by the router below
 const LAUNCH_POS = V(0, 28, -550);
 
 // ---------------------------------------------------------------- renderer, camera, lights, post-processing
@@ -5623,6 +5671,10 @@ net.on('player_joined', (m) => {
   if (net.host && waveActive) net.send('wave', { n: wave, kind: waveKind(wave) });
 });
 net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+// The panel is only right while it is open, so it is only redrawn then.
+for (const t of ['player_joined', 'player_left', 'status', 'role']) {
+  net.on(t, () => { if (view === 'flight') refreshFlight(); });
+}
 // Another pilot's tracer. BOLT_SPEED without their velocity added -- the bolt they see has it
 // and this one will not match theirs exactly, but it is scenery either way, and a tracer that
 // matches the direction they fired reads correctly from any angle.
@@ -5782,6 +5834,94 @@ function updateSwarm() {
   if (player.target && player.target.dead) player.target = null;
 }
 const _gp = V(), _gd = V(), _gq = new THREE.Quaternion();
+
+// ---------------------------------------------------------------- the lobby
+// No text field anywhere, which is deliberate rather than an omission. This game has never had
+// an <input> -- the arcade initials are a wheel driven by keys -- and on a phone a text field
+// summons the soft keyboard over the top of a game that has just gone full screen. So the
+// callsign is the three initials the player already has, and the sector code gets the same
+// wheel the initials use, which works from a keyboard, a thumb or a gamepad without one.
+const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // matches the relay: no O/0, no I/1
+const codeAt = [0, 0, 0, 0];
+let codeCur = 0, lobbyTimer = null, lobbyRows = [];
+
+const codeText = () => codeAt.map((i) => CODE_ALPHA[i]).join('');
+function drawCode() {
+  $('flightCode').innerHTML = codeAt.map((i, n) => `<div class="slot ${n === codeCur ? 'on' : ''}" data-cslot="${n}">
+    <button class="spin" type="button" data-cspin="${n}:1" aria-label="Previous character">&#9650;</button>
+    <div class="ch">${CODE_ALPHA[i]}</div>
+    <button class="spin" type="button" data-cspin="${n}:-1" aria-label="Next character">&#9660;</button>
+  </div>`).join('') + '<button class="launch ghost" type="button" id="codeGo">Join</button>';
+}
+function spinCode(n, d) {
+  codeAt[n] = (codeAt[n] + d + CODE_ALPHA.length) % CODE_ALPHA.length;
+  codeCur = n;
+  drawCode();
+}
+// Typing sets the current slot and walks on, which is what anyone reading a code aloud expects.
+function typeCode(ch) {
+  const i = CODE_ALPHA.indexOf(ch.toUpperCase());
+  if (i < 0) return false;
+  codeAt[codeCur] = i;
+  codeCur = Math.min(3, codeCur + 1);
+  drawCode();
+  return true;
+}
+
+async function loadLobbies() {
+  try {
+    const r = await fetch(`${API}/lobbies`, { cache: 'no-store' });
+    lobbyRows = (await r.json()).lobbies || [];
+  } catch { lobbyRows = []; }
+  drawLobbies();
+}
+function drawLobbies() {
+  const box = $('flightList');
+  const mine = net.sector;
+  const open = lobbyRows.filter((l) => l.sector !== mine && l.pilots < l.max);
+  if (!open.length) {
+    box.innerHTML = '<p class="sub">Nobody is waiting. Quick match opens one for you.</p>';
+    return;
+  }
+  box.innerHTML = open.map((l) =>
+    `<button class="diffopt" type="button" data-join="${l.sector}">${l.sector} · ${l.pilots} of ${l.max}</button>`).join('');
+}
+
+function refreshFlight() {
+  const inFlight = net.status === 'open' && net.sector;
+  $('flightNow').hidden = !inFlight;
+  $('flightJoin').hidden = inFlight;
+  $('flightOpen').hidden = inFlight;
+  $('flightByCode').hidden = inFlight;
+  if (inFlight) {
+    $('flightSector').textContent = `Sector ${net.sector}${net.private ? ' · private' : ''} · you are ${net.host ? 'flight lead' : 'on the wing'}`;
+    const others = [...net.peers.values()].map((p) => p.callsign);
+    $('flightRoster').textContent = others.length
+      ? `${pilotName()} (you), ${others.join(', ')} — ${others.length + 1} of 4.`
+      : `${pilotName()} (you). Send anyone the code ${net.sector} and they can join.`;
+  } else {
+    // Cleared, not merely hidden. The panel is shown again on the next join, and the version
+    // that left the old text in place greeted a pilot with the sector they had just left.
+    $('flightSector').textContent = '';
+    $('flightRoster').textContent = '';
+    if (net.status === 'connecting' || net.status === 'reconnecting') {
+      $('flightHint').textContent = 'Opening the flight channel…';
+    } else if (net.error) {
+      $('flightHint').textContent = `The flight channel said: ${net.error}.`;
+    }
+  }
+  drawLobbies();
+}
+// Polled only while the view is open. A lobby list that refreshes behind a closed page is a
+// request every few seconds for something nobody is looking at.
+function flightViewOpened() {
+  drawCode();
+  refreshFlight();
+  loadLobbies();
+  clearInterval(lobbyTimer);
+  lobbyTimer = setInterval(loadLobbies, 5000);
+}
+function flightViewClosed() { clearInterval(lobbyTimer); lobbyTimer = null; }
 
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
@@ -6226,10 +6366,12 @@ function openView(name, { hash = true } = {}) {
   $(viewFrom).hidden = true;
   if (hash && location.hash !== '#' + name) history.pushState(null, '', '#' + name);
   $(name).scrollTop = 0;
+  if (name === 'flight') flightViewOpened(); else flightViewClosed();
 }
 function closeView({ hash = true } = {}) {
   if (!view) return;
   for (const v of VIEWS) $(v).hidden = true;
+  flightViewClosed();
   view = null;
   $(viewFrom).hidden = false;
   if (hash && location.hash) history.pushState(null, '', location.pathname + location.search);
@@ -6465,6 +6607,16 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+  // The code wheel takes letters and arrows before the view swallows them. Everything it does
+  // not claim falls through to the modal behaviour below, so Escape still backs out.
+  if (view === 'flight') {
+    if (e.key && e.key.length === 1 && typeCode(e.key)) return;
+    if (e.code === 'ArrowLeft') { codeCur = Math.max(0, codeCur - 1); return drawCode(); }
+    if (e.code === 'ArrowRight') { codeCur = Math.min(3, codeCur + 1); return drawCode(); }
+    if (e.code === 'ArrowUp') return spinCode(codeCur, 1);
+    if (e.code === 'ArrowDown') return spinCode(codeCur, -1);
+    if (e.code === 'Backspace') { codeCur = Math.max(0, codeCur - 1); return drawCode(); }
+  }
   // A reading view is modal: it owns Escape and swallows the keys that would otherwise launch.
   if (view) {
     if (e.code === 'Escape' || e.code === 'Backspace' || e.code === 'Enter') closeView();
@@ -6634,6 +6786,19 @@ $('shipLever').addEventListener('click', (e) => {
 $('tBoardSwap').addEventListener('click', () => {
   boardView = boardView === 'global' ? 'local' : 'global';
   drawTitleBoard();
+});
+$('flightBack').addEventListener('click', () => closeView());
+// Delegated, so redrawing the wheel or the lobby list never loses its own controls.
+$('flight').addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-cspin], [data-cslot], [data-join], #codeGo, #flightQuick, #flightNew, #flightLeave');
+  if (!t) return;
+  if (t.dataset.cspin) { const [n, d] = t.dataset.cspin.split(':'); return spinCode(+n, +d); }
+  if (t.dataset.cslot !== undefined) { codeCur = +t.dataset.cslot; return drawCode(); }
+  if (t.dataset.join) { await joinFlight({ sector: t.dataset.join }); return refreshFlight(); }
+  if (t.id === 'codeGo') { await joinFlight({ sector: codeText() }); return refreshFlight(); }
+  if (t.id === 'flightQuick') { await joinFlight({}); return refreshFlight(); }
+  if (t.id === 'flightNew') { await joinFlight({ create: 'private' }); return refreshFlight(); }
+  if (t.id === 'flightLeave') { leaveFlight(); return refreshFlight(); }
 });
 $('controlsBack').addEventListener('click', () => closeView());
 $('aboutBack').addEventListener('click', () => closeView());

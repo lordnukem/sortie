@@ -105,6 +105,7 @@ export class Net {
     this.status = 'idle';          // idle | connecting | open | reconnecting | closed
     this.self = null;              // { id, callsign, host }
     this.sector = null;
+    this.private = false;
     this.peers = new Map();
     this.foes = new Map();         // the Swarm, as reported by whoever is hosting
     this.wave = null;              // { n, kind } from the host's last wave event
@@ -308,6 +309,7 @@ export class Net {
         this.self = { id: msg.id, callsign: this._want.callsign, host: !!msg.host };
         if (was !== undefined && was !== this.self.host) this._emit('role', { host: this.self.host, was });
         this.sector = msg.sector;
+        this.private = !!msg.private;
         this.peers.clear();
         this.foes.clear();
         for (const p of msg.players || []) this.peers.set(p.id, new Peer(p));
