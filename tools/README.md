@@ -220,3 +220,29 @@ One thing that looks like a bug and is not: **the join takes about eight seconds
 created immediately but `onopen` cannot dispatch until the main thread finishes parsing the 1.9 MB
 ship bundle. Measured: socket created at 0s, join frame sent between 5s and 10s, everything
 correct from there.
+
+### Testing the host and guest halves separately
+
+`ghost-pilot.js --swarm 9` makes the ghost pretend to host a sortie and broadcast nine Swarm
+ships. Without it the guest half is untestable, because proving a guest renders the host's
+enemies needs a host that is a browser, and a guest that is a browser, at the same time.
+
+So the two halves are proven separately, each against a real relay:
+
+```bash
+# host half -- a browser hosts, the ghost listens and counts what reaches the wire
+node tools/ghost-pilot.js --port 8796 --sector ABCD --callsign OBSERVER --seconds 40
+#   -> wave 1 (fight), most ships in one 4, mean 323 bytes
+
+# guest half -- the ghost hosts a fake Swarm, a browser joins and draws it
+node tools/ghost-pilot.js --port 8796 --callsign SWARMLORD --swarm 9 --seconds 300
+```
+
+Measured on the wire: **about 80 bytes a ship**, so a late wave of 28 is around 2.2 KB a
+snapshot — the figure the sprint plan guessed at, now confirmed, and comfortably inside the
+relay's 64 KiB frame cap.
+
+**Headless Chromium throttles `requestAnimationFrame` on a page nobody is looking at**, to
+roughly one or two frames a second, which throttles everything the game sends with it. Taking a
+screenshot forces a frame, so a loop of screenshots is how a test drives the game at a usable
+rate. Snapshot counts measured this way are a floor, not the real rate.

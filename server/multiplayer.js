@@ -18,6 +18,13 @@ const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const TICK_RATE_HZ = 20;
 const TICK_INTERVAL_MS = 1000 / TICK_RATE_HZ;
 const PLAYER_TIMEOUT_MS = 10_000;
+// How long a socket may say nothing before it has joined. It is deliberately far longer than
+// the in-sortie timeout, because the two silences mean opposite things: a pilot who stops
+// talking mid-fight has gone, while a socket that has not joined yet is usually a device still
+// parsing two megabytes of ship models. Ten seconds was enough to refuse a throttled browser
+// that was doing nothing wrong -- its join went out at about eight seconds on a fast desktop,
+// and the first slow phone would have been dropped before it ever said hello.
+const JOIN_GRACE_MS = 45_000;
 
 // Bounds. These were first sized for a protocol that carried one ship per message; co-op adds
 // the host's enemy snapshot, which is the largest thing on the wire -- a late wave is about 28
@@ -84,7 +91,7 @@ class WebSocketClient extends EventEmitter {
     // without this its slot against MAX_CONNS_PER_IP is held until the kernel gives up. A
     // joined pilot is never caught by it, because the 20 Hz tick writing to the socket counts
     // as activity; a pilot who goes quiet is caught by the lastSeen check in tick() instead.
-    this.socket.setTimeout(PLAYER_TIMEOUT_MS, () => this.close(CLOSE_POLICY, 'idle'));
+    this.socket.setTimeout(JOIN_GRACE_MS, () => this.close(CLOSE_POLICY, 'idle'));
     this.socket.setKeepAlive(true, 30_000);
     if (this.buffer.length) this._drain();
   }
@@ -217,6 +224,12 @@ class WebSocketClient extends EventEmitter {
     }
   }
 
+  // Called once the pilot is in a sector: from here the tick's lastSeen check is what notices
+  // a pilot who has gone quiet, so the socket's own timer can tighten to match.
+  settled() {
+    if (!this.closed) this.socket.setTimeout(PLAYER_TIMEOUT_MS, () => this.close(CLOSE_POLICY, 'idle'));
+  }
+
   close(code = CLOSE_NORMAL, reason = '') {
     if (this.closed) return;
     this.closed = true;
@@ -332,6 +345,7 @@ class Sector {
     }, id);
 
     this.players.set(id, { client, player });
+    client.settled();
     client.on('message', (msg) => this.handleMessage(id, msg));
     client.on('close', () => this.removePlayer(id));
     this._resume();

@@ -441,7 +441,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // The socket lives in its own file; see the note at the top of net.js for why. The ?v= is
 // bumped by hand on every change to it, the same discipline as CACHE in sw.js, because a
 // module served under an unchanged URL is how eleven ships once arrived as five.
-import { net } from './net.js?v=1';
+import { net } from './net.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -3989,6 +3989,9 @@ function makeEnemy(type, pos, heading) {
     state: 'form', t: 0, fireCd: rand(1, 2.5), leader: null, slot: V(), peel: 5, evade: V(), breakUntil: 0,
     beamCd: rand(1, 3), beamT: 0, captive: null, flash: 0, dead: false, name: `${d.tag}-${tagCounter[type]}`,
     prey: null, wanderT: 0, humT: 0, flybyCd: 0, phase: rand(0, TAU),
+    // A network id, assigned here because this is the only place an enemy is born. `name` will
+    // not do: tagCounter wraps at nine, so two live drones can share one.
+    nid: ++nidSeq,
   };
   enemies.push(e);
   return e;
@@ -4195,6 +4198,10 @@ function enemyFire(e, aim, anyDirection = false) {
 
 function damageEnemy(e, dmg, credit, at, podMult) {
   if (e.dead) return;
+  // A guest does not get to decide that a Swarm ship is hurt: it reports the hit and the host
+  // applies it, or the two worlds drift apart within one wave. Believed rather than verified,
+  // which is what a relay can offer -- see the note at the top of server/multiplayer.js.
+  if (!hosting()) { net.send('hit_enemy', { nid: e.nid, dmg: Math.round(dmg) }); return; }
   if (e.type === 'boss') { damageBoss(e, dmg, credit, at, podMult); return; }
   e.hp -= dmg;
   e.flash = 0.1;
@@ -4208,6 +4215,10 @@ function damageEnemy(e, dmg, credit, at, podMult) {
 function killEnemy(e, credit) {
   if (e.dead) return;
   e.dead = true;
+  if (net.connected && net.host) {
+    const p = e.obj.position;
+    net.send('enemy_dead', { nid: e.nid, p: [r2(p.x), r2(p.y), r2(p.z)], type: e.type });
+  }
   if (credit) {
     addScore(e.state === 'form' ? e.d.ptsForm : e.d.pts);
     kills++;
@@ -5363,6 +5374,10 @@ function startWave(n) {
   holdout = null;
   clearField();
   const kind = waveKind(n);
+  // The wave itself is an event, not something a guest can infer from the snapshot: ships
+  // trickle in over twenty seconds, so a guest watching only the Swarm would see the banner
+  // whenever the first one happened to arrive.
+  if (net.connected && net.host) net.send('wave', { n, kind });
   if (kind === 'boss') {
     const bk = bossKind(n);
     if (bk === 'hive') spawnBoss(n);
@@ -5449,7 +5464,10 @@ function waveComplete() {
 function updateFlow(dt) {
   waveT += dt;
   runT += dt;
-  while (spawnQueue.length && spawnQueue[0].t <= waveT) {
+  // Everything the Swarm does is the host's call. A guest still runs its own clock, its own
+  // death and respawn, and its own objectives -- those are about this pilot, not the wave.
+  const own = hosting();
+  while (own && spawnQueue.length && spawnQueue[0].t <= waveT) {
     const s = spawnQueue.shift();
     if (s.type === 'raider') spawnRaider(); else spawnFlight(s.type, s.count);
   }
@@ -5467,15 +5485,15 @@ function updateFlow(dt) {
   if (waveActive) updateObjectives();
   if (holdout && waveActive) {
     holdout.t += dt;
-    if (!holdout.relieved) {
+    if (own && !holdout.relieved) {
       if (holdout.t >= holdout.need) relieve();
       else if (holdout.t >= holdout.nextAt) holdoutPush();
     }
   }
   // The field is scenery, so it never holds a wave open -- only the Swarm does. A hold-out is
   // not over until relief has arrived, however quiet it happens to go before then.
-  if (waveActive && !spawnQueue.length && !enemies.length && !(holdout && !holdout.relieved)) waveComplete();
-  if (nextWaveT >= 0) {
+  if (own && waveActive && !spawnQueue.length && !enemies.length && !(holdout && !holdout.relieved)) waveComplete();
+  if (own && nextWaveT >= 0) {
     nextWaveT -= dt;
     if (nextWaveT < 0) startWave(wave + 1);
   }
@@ -5554,13 +5572,119 @@ function leaveFlight() {
 }
 // Said once, when someone arrives or goes, because the flight list on the HUD shows the state
 // and the radio should carry the change.
-net.on('player_joined', (m) => comm('HALCYON', `${m.player.callsign} is on station.`, 'friend'));
+net.on('player_joined', (m) => {
+  comm('HALCYON', `${m.player.callsign} is on station.`, 'friend');
+  // Catch them up. The wave is an event, so a pilot who arrives mid-sortie would otherwise sit
+  // at WAVE 0 with no objectives while ships they cannot account for fly past them -- the
+  // Swarm snapshot says where everything is and nothing at all about what is going on.
+  if (net.host && waveActive) net.send('wave', { n: wave, kind: waveKind(wave) });
+});
 net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+// A guest's shots land on the host's copy of the Swarm, which is the only copy that counts.
+// Clamped, because the number arrives from a browser; believed, because this is a relay and
+// the people in your sector are people you invited.
+//
+// Credit is deliberately withheld here: awarding it to the host would hand them every guest's
+// kills, and awarding it properly means paying the pilot who reported the hit, which needs a
+// message back. That is the scoring item, not this one.
+net.on('hit_enemy', (m) => {
+  if (!net.host) return;
+  const e = enemies.find((x) => x.nid === m.nid && !x.dead);
+  if (!e) return;
+  damageEnemy(e, clamp(Number(m.dmg) || 0, 1, 400), false);
+});
+
+// A guest takes the wave from the host rather than deciding it. Objectives are rebuilt locally
+// from the same two numbers, so both pilots see the same goals without those being on the wire.
+net.on('wave', (m) => {
+  if (net.host) return;
+  wave = m.n;
+  waveT = 0;
+  waveActive = true;
+  nextWaveT = -1;
+  waveMark = { kills, rocks: rocksDestroyed, hull: player.hull, t: runT };
+  objectives = buildObjectives(m.n, m.kind);
+  showBanner(`WAVE ${m.n}`, m.n === 1 ? 'Swarm interceptors inbound' : 'Swarm strike group inbound');
+  voice.say([waveClip(m.n), m.n === 1 ? 'scan-1' : 'scan-2', 'scan-3'], { key: 'wave', cooldown: 2 });
+});
+// The bang. The ship is already gone from the next snapshot either way; this is only so a kill
+// looks like a kill rather than a ship blinking out.
+net.on('enemy_dead', (m) => {
+  if (net.host) return;
+  const d = SHIPS[m.type];
+  _gp.set(m.p[0], m.p[1], m.p[2]);
+  // explode() already makes the noise, with the right distance falloff; calling sfx.boom here
+  // as well would double every kill a guest hears.
+  explode(_gp, d ? d.color : 0xff8844, d ? d.r / 3.2 : 1, m.type === 'warden' || m.type === 'boss');
+});
 net.on('run_end', (m) => {
   if (m.reason !== 'host_left') return;
   comm('HALCYON', 'Flight lead has jumped out. Sortie scrubbed.', 'enemy');
   clearPeers();
 });
+
+// ---------------------------------------------------------------- who owns the Swarm
+// One browser simulates the enemies and tells the others where they are. Which browser is
+// decided by the relay -- the first pilot into a sector hosts it -- and `hosting()` is the
+// single question every authority decision asks.
+//
+// The important property is the degenerate case: **solo play is hosting with nobody watching.**
+// Not connected means hosting, so every path below runs exactly as it always has when there is
+// no socket, and co-op is the same game with an audience rather than a second mode to keep in
+// step with the first.
+let nidSeq = 0;
+const hosting = () => !net.connected || net.host;
+
+// Round on the way out. Two decimals is a centimetre at this scale and three is finer than any
+// rotation anyone can see; at 28 ships twenty times a second the digits are most of the packet.
+const r2 = (n) => Math.round(n * 100) / 100;
+const r3 = (n) => Math.round(n * 1000) / 1000;
+function sendSwarm() {
+  if (!net.connected || !net.host) return;
+  const rows = [];
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const p = e.obj.position, q = e.obj.quaternion;
+    rows.push([e.nid, e.type, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w),
+      Math.round(e.hp), e.state]);
+  }
+  net.sendFoes(rows);
+}
+
+// What a guest does instead of running the AI. The enemies array is the real one -- targeting,
+// the radar, bolt collision, the lead pip and the lock tone all read it and none of them need
+// to know the difference -- so a guest builds genuine enemies through makeEnemy() and then
+// never thinks for them again.
+function updateSwarm() {
+  const live = new Map();
+  for (const e of enemies) if (e.nid) live.set(e.nid, e);
+
+  for (const [nid, f] of net.foes) {
+    let e = live.get(nid);
+    if (!e) {
+      if (!SHIPS[f.type]) continue;               // a type this build does not have; skip it
+      const s0 = f.track.buf[0];
+      _gp.set(s0.pos[0], s0.pos[1], s0.pos[2]);
+      _gq.set(s0.rot[0], s0.rot[1], s0.rot[2], s0.rot[3]);
+      e = makeEnemy(f.type, _gp, _gq);
+      e.nid = nid;                                 // the host's id wins; ours was a local guess
+    }
+    e.hp = f.hp;
+    e.state = f.st;
+    const s = net.sample(f);
+    if (!s) continue;
+    e.obj.position.set(s.pos[0], s.pos[1], s.pos[2]);
+    e.obj.quaternion.set(s.rot[0], s.rot[1], s.rot[2], s.rot[3]);
+    e.heading.copy(e.obj.quaternion);
+  }
+
+  // Gone from the host's snapshot means gone. A ship that the death event missed vanishes
+  // quietly rather than living for ever, which is the right way round: a lost bang is a
+  // cosmetic fault, a ship only one player can see is a broken sortie.
+  for (const e of enemies) if (e.nid && !net.foes.has(e.nid)) { e.dead = true; scene.remove(e.obj); disposeObj(e.obj); }
+  if (player.target && player.target.dead) player.target = null;
+}
+const _gp = V(), _gq = new THREE.Quaternion();
 
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
@@ -7207,8 +7331,10 @@ function update(dt) {
     for (const e of enemies) updateEnemy(e, dt);
   } else if (!paused) {
     if (state === 'play') updatePlayer(dt, inp);
-    for (const e of enemies) updateEnemy(e, dt);
+    if (hosting()) for (const e of enemies) updateEnemy(e, dt);
+    else updateSwarm();
     enemies = enemies.filter((e) => !e.dead);
+    sendSwarm();
     updateWings(dt);
     if (wings.some((w) => w.dead)) wings = wings.filter((w) => !w.dead);
     updatePeers();

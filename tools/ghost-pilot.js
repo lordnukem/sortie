@@ -18,6 +18,11 @@ const CALLSIGN = arg('callsign', 'GHOST');
 const RADIUS = Number(arg('radius', 90));
 const SECONDS = Number(arg('seconds', 90));
 const LEAD = Number(arg('lead', 2.2));   // seconds ahead of the lead ship to take station
+// --swarm N makes the ghost pretend to be the host and broadcast N Swarm ships. It is the only
+// way to test the guest half without a second browser, and two WebGL contexts under a software
+// renderer do not survive that. The ships fly circles; the point is the wire, not the AI.
+const SWARM = Number(arg('swarm', 0));
+let gotTicks = 0, gotFoes = 0, foeBytes = 0, lastFoeCount = 0, maxFoeCount = 0, sawWave = null;
 const ORIGIN = arg('origin', 'http://127.0.0.1:8777');
 
 let sock, up = false, buf = Buffer.alloc(0), id = null;
@@ -70,7 +75,16 @@ sock.on('data', (chunk) => {
     if (m.type === 'welcome') {
       id = m.id;
       console.log(`${CALLSIGN} joined sector ${m.sector} as ${m.host ? 'host' : 'guest'} (${m.players.length} already there)`);
+    } else if (m.type === 'enemies') {
+      // Counted rather than printed: at 20 Hz the log would be the only thing anyone sees.
+      gotFoes++; lastFoeCount = (m.e || []).length; foeBytes += body.length;
+      if (lastFoeCount > maxFoeCount) maxFoeCount = lastFoeCount;
+    } else if (m.type === 'wave') {
+      sawWave = m; console.log(` <- wave ${m.n} (${m.kind})`);
+    } else if (m.type === 'enemy_dead') {
+      console.log(` <- enemy_dead nid=${m.nid} ${m.type}`);
     } else if (m.type === 'tick') {
+      gotTicks++;
       // Fly formation on whoever else is here. The tick carries every pilot's position, so the
       // ghost can hold station on a real player instead of orbiting a fixed point the player
       // leaves behind within seconds -- which is the difference between a peer you can see on
@@ -112,4 +126,33 @@ setInterval(() => {
   });
 }, 50).unref?.();
 
-setTimeout(() => { console.log('done'); process.exit(0); }, SECONDS * 1000);
+// The fake Swarm, when asked for one. A wave event first, because a guest takes the wave from
+// an event rather than inferring it from ships trickling in over twenty seconds.
+if (SWARM > 0) {
+  const types = ['drone', 'lancer', 'warden'];
+  setTimeout(() => say({ type: 'wave', n: 1, kind: 'fight' }), 1200);
+  setInterval(() => {
+    if (!id) return;
+    const t = (Date.now() - t0) / 1000;
+    const c = lead || [0, 28, -550];
+    const rows = [];
+    for (let i = 0; i < SWARM; i++) {
+      const a = t * 0.5 + (i * Math.PI * 2) / SWARM;
+      const R = 70 + (i % 3) * 25;
+      const yaw = a + Math.PI / 2;
+      rows.push([1000 + i, types[i % types.length],
+        r2(c[0] + Math.cos(a) * R), r2(c[1] + 10 + (i % 4) * 6), r2(c[2] + Math.sin(a) * R),
+        0, r3(Math.sin(yaw / 2)), 0, r3(Math.cos(yaw / 2)), 40, 'attack']);
+    }
+    say({ type: 'enemies', e: rows });
+  }, 50).unref?.();
+}
+const r2 = (n) => Math.round(n * 100) / 100;
+const r3 = (n) => Math.round(n * 1000) / 1000;
+
+setTimeout(() => {
+  console.log(`done -- ticks ${gotTicks}, enemy snapshots ${gotFoes}`
+    + (gotFoes ? `, most ships in one ${maxFoeCount}, mean ${Math.round(foeBytes / gotFoes)} bytes` : '')
+    + (sawWave ? `, wave ${sawWave.n}` : ''));
+  process.exit(0);
+}, SECONDS * 1000);

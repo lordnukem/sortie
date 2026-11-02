@@ -54,19 +54,11 @@ export function relayURL() {
 
 // One other pilot, as the game sees them: who they are, what they are flying, and a short
 // history of where they have been.
-class Peer {
-  constructor(d) {
-    this.id = d.id;
-    this.callsign = d.callsign || '????';
-    this.ship = d.ship || 'striker';
-    this.hull = d.hull ?? 100;
-    this.shield = d.shield ?? 100;
-    this.score = d.score ?? 0;
-    this.dead = false;
-    this.slot = -1;          // which wing station they fly, assigned by the game
-    this.obj = null;         // the game hangs its THREE.Group here
-    this.buf = [];           // {at, pos, rot, vel, thr, fire}
-  }
+// A short history of where something was. Pilots and enemies both need one and the problem is
+// identical for both, so it lives here once rather than twice: the only difference between a
+// peer and a Swarm fighter, as far as drawing them smoothly goes, is who is reporting them.
+class Track {
+  constructor() { this.buf = []; }
   push(s) {
     const at = now();
     // Out-of-order arrival is rare but not impossible, and a snapshot inserted behind the
@@ -78,12 +70,44 @@ class Peer {
   }
 }
 
+class Peer {
+  constructor(d) {
+    this.id = d.id;
+    this.callsign = d.callsign || '????';
+    this.ship = d.ship || 'striker';
+    this.hull = d.hull ?? 100;
+    this.shield = d.shield ?? 100;
+    this.score = d.score ?? 0;
+    this.dead = false;
+    this.obj = null;         // the game hangs its THREE.Group here
+    this.track = new Track();
+  }
+  get buf() { return this.track.buf; }
+  push(s) { this.track.push(s); }
+}
+
+// One Swarm ship as a guest sees it. `st` is the host's AI state, carried only so the guest can
+// mirror things the state drives -- a ship in 'show' is not on the scope yet, for instance.
+class Foe {
+  constructor(id, type) {
+    this.id = id;
+    this.type = type;
+    this.hp = 1;
+    this.st = '';
+    this.obj = null;
+    this.track = new Track();
+  }
+  get buf() { return this.track.buf; }
+}
+
 export class Net {
   constructor() {
     this.status = 'idle';          // idle | connecting | open | reconnecting | closed
     this.self = null;              // { id, callsign, host }
     this.sector = null;
     this.peers = new Map();
+    this.foes = new Map();         // the Swarm, as reported by whoever is hosting
+    this.wave = null;              // { n, kind } from the host's last wave event
     this.rtt = 0;
     this.error = null;
     this.ws = null;
@@ -92,6 +116,7 @@ export class Net {
     this._tries = 0;
     this._timer = null;
     this._stateAt = 0;
+    this._foeAt = 0;
     this._pingAt = 0;
     this._closing = false;
   }
@@ -243,6 +268,34 @@ export class Net {
     if (t - this._pingAt > PING_MS) { this._pingAt = t; this.send('ping', { t }); }
   }
 
+  // The Swarm, from the host. One flat array per ship rather than an object: at 28 ships
+  // twenty times a second the key names cost more than the numbers do, and this is the largest
+  // thing on the wire by a wide margin.
+  //   [ id, type, x, y, z, qx, qy, qz, qw, hp, state ]
+  sendFoes(list) {
+    if (!this.connected || !this.host) return;
+    const t = now();
+    if (t - this._foeAt < 1000 / STATE_HZ) return;
+    this._foeAt = t;
+    this.send('enemies', { e: list });
+  }
+
+  _foes(msg) {
+    const seen = new Set();
+    for (const row of msg.e || []) {
+      const [id, type, x, y, z, qx, qy, qz, qw, hp, st] = row;
+      seen.add(id);
+      let f = this.foes.get(id);
+      if (!f) { f = new Foe(id, type); this.foes.set(id, f); }
+      f.hp = hp; f.st = st;
+      f.track.push({ pos: [x, y, z], rot: [qx, qy, qz, qw], vel: null });
+    }
+    // Absent from the snapshot means gone. A separate death event carries the explosion, but
+    // this is what guarantees the guest's world cannot drift from the host's -- a missed event
+    // costs a bang, not a ship that lives for ever.
+    for (const id of [...this.foes.keys()]) if (!seen.has(id)) this.foes.delete(id);
+  }
+
   // --- inbound ------------------------------------------------------------
   _inbound(msg) {
     switch (msg.type) {
@@ -250,6 +303,7 @@ export class Net {
         this.self = { id: msg.id, callsign: this._want.callsign, host: !!msg.host };
         this.sector = msg.sector;
         this.peers.clear();
+        this.foes.clear();
         for (const p of msg.players || []) this.peers.set(p.id, new Peer(p));
         this.status = 'open';
         this._emit('status', { status: this.status });
@@ -286,6 +340,14 @@ export class Net {
       // other. Hull, shield and death arrive on `state`, self-reported by the pilot they
       // belong to, which in co-op is the only party with anything to say about them.
 
+      case 'enemies':
+        if (!this.host) this._foes(msg);
+        break;
+
+      case 'wave':
+        if (!this.host) this.wave = { n: msg.n, kind: msg.kind };
+        break;
+
       case 'pong':
         if (typeof msg.t === 'number') this.rtt = Math.round(now() - msg.t);
         break;
@@ -298,8 +360,8 @@ export class Net {
   // Where this peer was INTERP_MS ago, as {pos:[x,y,z], rot:[x,y,z,w], t} in the arrays the
   // snapshots already use -- the caller copies them into whatever vector type it keeps.
   // Returns null when there is nothing to draw yet.
-  sample(peer, at = now()) {
-    const b = peer.buf;
+  sample(thing, at = now()) {
+    const b = thing.buf;
     if (!b.length) return null;
     const want = at - INTERP_MS;
 
