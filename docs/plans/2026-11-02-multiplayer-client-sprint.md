@@ -1,176 +1,214 @@
-# Multiplayer — the client and the lobby
+# Multiplayer — co-op, the client, and the lobby
 
-**Written 2026-11-02.** The relay exists and is tested (`server/multiplayer.js`, branch
-`feature/multiplayer-support`, PR #8). Nothing in the game speaks to it: `grep -c -i websocket
-index.html` returns **0**. This plan is the client for it, and the lobby in front of it.
+**Written 2026-11-02; rewritten the same day when the scope was cut to co-op only.** The relay
+exists and is tested (`server/multiplayer.js`, branch `feature/multiplayer-support`, PR #8).
+Nothing in the game speaks to it: `grep -c -i websocket index.html` returns **0**.
 
-## The decision this plan turns on
+## What the scope cut changed, and what it cost
 
-Sortie is a wave-survival game against AI. The moment two players share a sector, something has
-to decide where the enemies are, and there are only three ways to answer that:
+The first draft of this plan opened with a skirmish mode — pilots, open space, no AI — and
+deferred co-op to a second sprint. That order was chosen for one reason: in skirmish every entity
+in the sector is a player, so nothing has to decide where the enemies are, and the relay's
+existing protocol covers it exactly.
 
-| Approach | What it costs | Verdict |
+Co-op does not get that for free. Somebody has to own the Swarm. **Scoping to co-op only makes
+this sprint larger, not smaller**, and the honest version of that sentence belongs at the top
+rather than in a risks section at the bottom.
+
+There is a real simplification hiding in it, though, and it is what makes the sprint tractable:
+
+> **The host runs the game that already exists.** Solo play is co-op with one pilot and no socket.
+> None of the wave, boss, carrier or asteroid code changes. The new code is the *guest* path.
+
+That is a much better position than skirmish would have left us in, where the whole mode was new
+code with no existing behaviour to inherit.
+
+## The shape
+
+Three pilots join a host; **four in a flight**, which is the number the game is already written
+for. `WING_NAME` / `WING_LABEL` / `WING_SLOT` at `index.html:4544-4549` name Gold Two, Three and
+Four and give each a formation station. A guest takes one of those slots instead of an AI wingman
+filling it. The HUD, the radio chatter and the formation geometry all work already.
+
+| | Host | Guest |
 |---|---|---|
-| **Server simulates the waves** | Porting the enemy AI, carrier, boss phases, asteroids and tractor beams out of `index.html` into Node — thousands of lines, and then two copies of the game to keep in step | No |
-| **Deterministic lockstep from a shared seed** | Every client must produce bit-identical float results every frame. The sim is `dt`-driven and frame-rate dependent | No |
-| **One player's browser hosts the sim** | New message types, a host election, a migration path when the host quits | Yes — but later |
+| Own ship | authoritative | authoritative |
+| Enemies, asteroids, mines, carrier | authoritative, runs the real sim | replicated, no AI running |
+| Wave and boss progression | authoritative | replicated |
+| Shots at an enemy | local hit detection | local hit detection, reported up |
+| Damage taken | local | local |
 
-So the first multiplayer mode deliberately **has no AI in it at all.**
+Everything is client-authoritative, as it already was. In co-op that is defensible in a way it
+never would be in PvP: **the only thing a cheat buys you is ruining a sortie for people who
+invited you.** It still gets written into the client, so nobody later builds a ranked mode on it
+by mistake.
 
-**Skirmish**: pilots, open space, asteroids, each other. No waves, no carrier, no boss. Every
-entity in the sector is a player, and every player is authoritative over exactly one ship — their
-own. That is precisely the protocol the relay already speaks (`join`, `state`, `fire`, `hit`,
-`ping` up; `welcome`, `tick`, `proj`, `damage`, `kill`, `respawn`, `player_joined`, `player_left`
-down), which is not a coincidence — it is why the relay was shaped that way.
+**Host leaves, the sortie ends** for everyone, with a clear message and nothing posted. The lobby
+marks who the host is. Host migration needs enemy-state transfer, an election and a freeze
+window, and it fails in ways that are miserable to reproduce; it is not in this sprint.
 
-Co-op against the Swarm is the better mode and the one originally asked for. It is **sprint 2**,
-because it needs host authority, and host authority is worth building on top of a netcode layer
-that already works rather than at the same time as one.
+## What gets replicated, and how
 
-## What exists to build on
+This is the part that decides whether the sprint works, so it is specific.
 
-| Piece | Where | Use |
-|---|---|---|
-| Relay, bounded and tested | `server/multiplayer.js` | the whole transport |
-| `buildFriendly()` | `index.html:2526` | a peer's ship model, already Striker-based |
-| `wings[]` + `updateWings()` | `index.html:4550`, `4575` | the pattern for non-player ships that are not enemies |
-| `spawnBolt()` | `index.html:4891` | replicating a peer's shot |
-| `comm()` | `index.html:3901` | join/leave/kill chatter in the existing HUD voice |
-| `openView()` / `VIEW_IDS` | `index.html:5858` | the lobby is a fourth routed view |
-| `API` base | `index.html:3786` | the lobby list; the socket URL is its sibling |
+**Enemies — snapshot.** The host sends every live enemy at 20 Hz: id, type, position, rotation,
+hp, ai state. A late wave carries ~28 ships (`startWave`, `index.html:5354`, and the comment there
+counts them), so at roughly 100 bytes each that is ~3 KB a tick, ~60 KB/s. That is inside
+`MAX_FRAME` (16 KiB) but not comfortably, and it is more than a phone on cellular should be sent
+without measuring. Mitigations in order of preference: short keys, positions quantized to 2 dp,
+and only sending an enemy whose state actually changed.
 
-## Server work first
+**Asteroids and mines — once, then dead reckoning.** They spawn at wave start and drift
+predictably. Send the spawn list once per wave; let every client integrate it. Only destruction is
+an event. This is the single biggest bandwidth saving available and it costs nothing in fidelity.
 
-The relay today has exactly one hardcoded sector, `varan-prime`. A lobby is a named sector plus a
-way to find it.
+**Bolts — events, never snapshots.** A bolt is origin, direction, speed and owner. Every client
+simulates it from the `fire` event through the existing `spawnBolt()` (`index.html:4891`).
+Snapshotting projectiles would multiply the tick size for no gain.
 
-1. **Sectors, plural.** A `Map` of sector id to `Sector`, created on first join and destroyed when
-   the last pilot leaves. Caps: `MAX_SECTORS`, and the existing `MAX_PLAYERS` per sector.
-2. **`join` carries a sector.** `{ type:'join', sector:'<id>', code:'<4 chars>' }`. No sector means
-   matchmake into the emptiest public one that is not full, creating one if all are full.
-3. **Private sectors.** A 4-character code, from an unambiguous alphabet (no `O`/`0`, no `I`/`1`).
-   A private sector never appears in the list and refuses a join with the wrong code.
-4. **`GET /api/lobbies`.** Public sectors only: id, pilot count, cap. Rate-limited like every other
-   endpoint via the existing `allow()` at `server/server.js:303`.
-5. **Skirmish scores do not enter the global board.** They are not comparable to a solo run and the
-   relay cannot verify a single number in them. `postScore()` (`index.html:3891`) must not fire in
-   skirmish, and the API should reject a submission that claims one.
+**Hits — reported, not asked.** A client resolves its own shots against its own copy of the enemy
+positions and sends `hit { enemyId, damage }`. The host applies it and broadcasts the result. Same
+trust model the relay already has, and in co-op it is the right one.
 
-Sizing: ~150 lines on top of the existing module, no new concepts.
+**Wave progression — events.** `wave_start`, `wave_clear`, `boss_phase`, `holdout_begin`,
+`reinforcements`. Guests do not decide any of these; they play the banner and the voice line.
 
-## Client work
+## Shared run state
 
-In the order it should be built, because each item is testable before the next exists.
+- **Lives are a pool, not per pilot.** The carrier's spare fighters already work this way, and the
+  rescued-pilot mechanic (`index.html:4330`, `4550`) already converts a rescue into a spare
+  fighter. A guest who dies respawns from the Halcyon and spends one from the pool; the sortie
+  ends when it is empty.
+- **Score is per pilot, summed into a team score.** Each pilot sees their own contribution in the
+  HUD and the team total on the debrief. Kill credit goes to whoever reported the killing hit.
+- **Enemies scale with the flight.** A wave built for one pilot is trivial for four. The drone
+  count in `startWave` is the obvious lever; the scaling factor has to come from playtesting, not
+  from arithmetic, and should be a named constant that is easy to turn.
 
-### 1. The net layer — `net.js`, not `index.html`
+## Scoring: a separate board
 
-One module owning the socket: connect, `join`, reconnect with backoff, send `state` at 20 Hz,
-decode and queue inbound messages. It exposes a snapshot buffer and nothing else. The game loop
-reads that buffer; it never touches a socket.
+Co-op runs rank against co-op runs, never against solo. A co-op kill is cheaper than a solo one,
+and the whole point of the difficulty multiplier work was to keep the solo board comparable.
 
-The URL is `wss://sortiethegame.com/ws` from both hosts, because GitHub Pages is a different origin
-and cannot be relative — which is the whole reason the relay checks `Origin` against the allowlist
+- New table `coop_scores`, the shape of `scores` (`server/server.js:38`) plus `pilots` and a
+  `flight` id so one sortie's rows can be read as one run.
+- `GET /api/coop` with the same rate limit and the same 100-row keep as the solo board.
+- A board view on the title screen alongside the existing one, with the pilot count shown — a
+  four-pilot run and a two-pilot run are not the same achievement and the board should say so.
+- The solo path (`postScore`, `index.html:3891`) must not fire in co-op, and the solo endpoint
+  should reject a submission that carries a flight id.
+
+## The work, in the order it can be proven
+
+Each item is testable before the next exists. That ordering is the point: netcode that is wrong
+in item 1 makes items 2–6 unprovable rather than merely broken.
+
+### 0 — Server: sectors, lobbies, host, co-op board  (~250 lines)
+
+Sectors in the plural instead of one hardcoded `varan-prime`; a 4-character private code from an
+unambiguous alphabet (no `O`/`0`, no `I`/`1`); `GET /api/lobbies` for public sectors; a `host` flag
+on the first pilot in a sector, re-sent on `welcome`; a passthrough for the co-op message types
+with the host-only ones enforced server-side; `coop_scores` and `GET /api/coop`.
+
+Frame and rate limits need re-tuning against a measured snapshot, not guessed at — `MAX_FRAME`
+and `MSG_PER_SEC` were sized for a protocol that carried one ship per message.
+
+*Proven by:* socket tests in the style of PR #8, plus `curl /api/lobbies` and `curl /api/coop`.
+
+### 1 — `net.js`, the transport  (~300 lines)
+
+Its own file, not `index.html`: `docs/workflow.md` says one writer on that file, and netcode is
+the part most likely to want a second reader. Connect, join, reconnect with backoff, send `state`
+at 20 Hz, decode inbound into a snapshot buffer. The game loop reads the buffer and never touches
+a socket.
+
+The URL is `wss://sortiethegame.com/ws` from both hosts — GitHub Pages is a different origin and
+cannot be relative, which is exactly why the relay checks `Origin` against the allowlist
 `server.js` already keeps.
 
-Deliberately a separate file. `docs/workflow.md` says one writer on `index.html` at a time, and
-the netcode is the part most likely to need a second pair of eyes.
+*Proven by:* two Node clients joining, exchanging state and reconnecting after a drop. No
+rendering involved.
 
-**~250 lines. Testable headlessly against a local server with no rendering at all.**
+### 2 — Peers on screen  (~300 lines)
 
-### 2. Peers on screen
+A `peers` Map, one `buildFriendly()` ship each (`index.html:2526` — already the Striker the
+wingmen fly), driven by `tick`. Two things make or break it:
 
-A `peers` Map, one `buildFriendly()` ship each, driven by `tick` snapshots. The two things that
-make or break this:
+- **Interpolation.** The relay ticks at 20 Hz and the game renders at 60+. Render each peer ~100 ms
+  in the past and interpolate between the snapshots bracketing that time. This is the highest-risk
+  item in the sprint and the one most likely to need a second pass after it is first seen over a
+  real connection rather than loopback.
+- **Nameplates.** A peer with no callsign over it is unreadable in a dogfight. Same screen-space
+  projection the HUD already does.
 
-- **Interpolation.** The relay ticks at 20 Hz; the game renders at 60+. Drawing raw snapshots
-  gives 20 Hz stutter on every other ship. Render each peer ~100 ms in the past and interpolate
-  between the two snapshots bracketing that time. This is the single highest-risk item in the
-  sprint and the one most likely to need a second pass.
-- **Nameplates.** A peer with no callsign over it is unreadable in a dogfight. The HUD canvas
-  already draws screen-space text; this is the same projection.
+*Proven by:* two headless browsers in one sector, each screenshotted showing the other's ship.
 
-**~300 lines.**
+### 3 — Enemy replication  (~400 lines)
 
-### 3. Shooting each other
+The host serialises enemies and wave events; the guest builds and drives ships from snapshots with
+the AI loop switched off. The guest's enemy update becomes interpolation plus the existing
+rendering, nothing more.
 
-`fire` out on every shot, `proj` in replicated through `spawnBolt()` with the shooter's id as
-owner. Local hit detection against peer ships, then `hit` up. `damage` / `kill` / `respawn` down
-drive flashes, the kill feed and the respawn.
+Expect the gate — "am I the host?" — to be the fiddly part, because the wave machinery is threaded
+through `update()` and every call site has to be *read* rather than guessed at.
 
-Accept now, and write down in the file, that **this is a relay**: a peer's client decides it hit
-you and the server believes it. Fine among people you invited. Not fine for anything ranked, and
-the code should say so where someone would otherwise assume otherwise.
+*Proven by:* a guest browser screenshotting the same wave the host sees, with matching enemy
+counts and positions.
 
-**~200 lines.**
+### 4 — Shooting, damage, death  (~250 lines)
 
-### 4. The lobby — a fourth view
+`fire` out, `proj` in through `spawnBolt()`, local hit detection, `hit` up, `enemy_damage` /
+`enemy_dead` down. Shared life pool, respawn from the carrier, kill credit, team score.
 
-Routed at `#play` alongside `#controls` and `#about`, reachable from the title.
+*Proven by:* a two-pilot wave cleared cooperatively, both clients agreeing on the kill count.
 
-- A callsign field, 3–16 chars, persisted in `localStorage` beside the existing arcade initials.
-- **Quick match** — one button, no typing: join or create a public sector.
-- **Public list** from `/api/lobbies`, with pilot counts, refreshed while the view is open.
-- **Private**: create (shows the code, with a copy button) or enter a code.
-- A pilot list while in the sector, and a **Leave** that returns to the title.
+### 5 — The lobby  (~350 lines)
 
-Mobile matters here more than anywhere: the existing touch layout owns the whole screen, so the
-lobby has to be a title-screen view and not an in-flight overlay.
+A fourth routed view at `#flight`, beside `#controls` and `#about` (`VIEW_IDS`,
+`index.html:5858`). Callsign field persisted next to the existing arcade initials. Quick match;
+a public list refreshed while the view is open; create-private showing the code with a copy
+button; enter-a-code; a pilot list with the host marked; Leave.
 
-**~350 lines of markup, CSS and wiring.**
+Mobile matters more here than anywhere, because the touch layout owns the whole screen — so the
+lobby is a title-screen view and never an in-flight overlay.
 
-### 5. The skirmish mode itself
+*Proven by:* quick match, private code round trip, list refresh and leave, on desktop and at phone
+width.
 
-A `mode` flag beside `state` (`index.html:3661`). In skirmish: no wave spawner, no carrier launch,
-no boss, no mission objectives; asteroids and mines stay, because they are the only terrain the
-arena has. Scoring is per-kill and shown in the sector, never posted. Death respawns on the
-relay's four-second timer instead of consuming a life.
+### 6 — Balance and the co-op board  (~200 lines)
 
-The risk here is not the new code, it is the old code: the wave machinery is threaded through
-`update()`, and gating it has to be done by reading those call sites rather than by guessing at
-them. Expect the gate itself to be bigger than it sounds.
+Enemy scaling per pilot count, the co-op board view, the debrief showing both your contribution
+and the team total.
 
-**~250 lines, mostly `if (mode === 'solo')` at sites that must each be read first.**
+*Proven by:* playtesting, which is the only thing that can prove it.
 
-## What this sprint is not
+## What is not in this sprint
 
-- **Not co-op against the Swarm.** That is sprint 2 and it needs host authority.
-- **Not voice, text chat or friend lists.**
-- **Not ranked.** Nothing from skirmish touches the global board.
-- **Not a second deployment target.** The relay runs inside the existing `sortie-api` unit; the
-  only infra change is the `/ws` block in the live nginx, which stays out until there is a client.
+- **No PvP, no skirmish.** Cut deliberately.
+- **No host migration.** The host leaving ends the sortie.
+- **No voice, text chat or friend lists.**
+- **Nothing co-op touches the solo board.**
+- **No second deployment target.** The relay runs inside the existing `sortie-api` unit; the only
+  infra change is the `/ws` block in the live nginx, which stays out until item 4 works.
 
 ## What will actually bite
 
-1. **Interpolation is the hard part**, not the protocol. Budget a second pass for it after the
-   first time it is seen on a real connection rather than over loopback.
-2. **Mobile sends `state` at 20 Hz over cellular.** Needs measuring on a real phone, not in a
-   headless browser. The message-rate cap is 60/s; 20 Hz of state plus fire reports is close enough
-   to that ceiling to want checking.
-3. **Reconnect is not optional.** Phones background the tab and the socket dies. A sortie that ends
-   because someone looked at a notification is worse than no multiplayer.
-4. **Cheating is possible by construction** and we are choosing to accept it. Write it down in the
-   client as well as the server, so nobody later builds a ranked mode on it by mistake.
-5. **`index.html` grows again.** It is 7,138 lines. The net layer goes in its own file for that
-   reason; if items 2–5 add another 1,100 lines inline, splitting the game out of the HTML stops
-   being optional and becomes its own sprint.
-
-## Order, and how each piece is proven
-
-| # | Item | Proven by |
-|---|---|---|
-| 0 | Sectors, lobby API, skirmish score rejection | socket tests like the ones in PR #8, plus `curl /api/lobbies` |
-| 1 | `net.js` | headless: two Node clients join, exchange state, reconnect after a kill |
-| 2 | Peers on screen | two headless browsers in one sector, screenshot each showing the other's ship and nameplate |
-| 3 | Shooting | one browser kills the other; kill feed and respawn verified on both |
-| 4 | Lobby view | quick match, private code round trip, list refresh, leave — on desktop and at phone width |
-| 5 | Skirmish mode | a full two-player skirmish with no AI entity present and no score posted |
-
-Items 0 and 1 are worth doing and reviewing on their own before 2–5 start, because everything
-after them is unprovable if the transport is wrong.
+1. **Interpolation**, not the protocol. Budget a second pass.
+2. **The host gate.** Threading `if (host)` through `update()` is more call sites than it sounds,
+   and each one has to be read. This is where a rushed sprint breaks solo play.
+3. **Snapshot size on cellular.** 28 enemies at 20 Hz needs measuring on a real phone before the
+   quantization work is declared done.
+4. **Reconnect is not optional.** Phones background the tab and the socket dies. A sortie that ends
+   because someone looked at a notification is worse than no multiplayer at all.
+5. **`index.html` is 7,138 lines.** If items 2–6 land inline it gains perhaps another 1,500.
+   Splitting the game out of the HTML stops being optional and becomes its own sprint.
+6. **Solo must not regress.** Every item above touches the single-player path. Solo is the game
+   that has players today; it gets re-tested at the end of every item, not at the end of the
+   sprint.
 
 ## Merge posture
 
-`feature/multiplayer-support` stays unmerged until item 3 works, because merging a reachable
+`feature/multiplayer-support` stays unmerged until item 4 works, because merging a reachable
 endpoint that no player uses is surface without benefit. When it merges, `/ws` goes into the live
-nginx in the same change, and `docs/workflow.md` gains the deploy step for `server/multiplayer.js`
-— already written there as of `b6fe2c8`.
+nginx in the same change, and `docs/workflow.md` already carries the deploy step for
+`server/multiplayer.js` as of `b6fe2c8`.
