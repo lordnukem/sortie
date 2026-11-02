@@ -262,6 +262,15 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
 .attract { width: 100%; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 10px 0 4px; }
 .attract .board-src { justify-content: center; }
 .attract .board { font-size: 13px; }
+/* The waiting room. The code is the whole point of the screen, so it is the biggest thing on it
+   and set in the mono face, which is the one that reads character by character over a phone. */
+.wait { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+.code {
+  margin: 0; font-family: var(--mono); font-size: clamp(38px, 11vw, 64px); line-height: 1;
+  letter-spacing: 0.24em; text-indent: 0.24em; color: var(--amber);
+  text-shadow: 0 0 22px rgba(255, 181, 71, 0.45);
+}
+.wait .note { text-align: center; }
 .difflever { justify-content: center; align-items: center; }
 .winglabel { font-family: var(--mono); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--dim); margin-right: 4px; }
 .diffopt.on { color: var(--amber); border-color: var(--amber); }
@@ -339,6 +348,15 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="picks" id="linkPicks"></div>
     <p class="sub" id="linkNote"></p>
     <div class="initials" id="linkCode" hidden></div>
+    <div class="wait" id="linkWait" hidden>
+      <p class="step">Your flight code</p>
+      <p class="code" id="linkCodeOut">————</p>
+      <div class="cab-row">
+        <button class="opt" id="linkCopy" type="button">Copy invite link</button>
+        <button class="opt" id="linkLeave" type="button">Leave</button>
+      </div>
+      <p class="note" id="linkRoster"></p>
+    </div>
     <div class="cab-row">
       <button class="opt" data-flow="back" type="button">Back</button>
       <button class="press sm" data-flow="next" type="button">Next</button>
@@ -5855,7 +5873,10 @@ net.on('player_joined', (m) => {
 net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
 // The panel is only right while it is open, so it is only redrawn then.
 for (const t of ['player_joined', 'player_left', 'status', 'role']) {
-  net.on(t, () => { if (view === 'flight') refreshFlight(); });
+  net.on(t, () => {
+    if (view === 'flight') refreshFlight();
+    if (flowAt >= 0 && flowPages()[flowAt] === 'scLink') refreshLink();
+  });
 }
 // Another pilot's tracer. BOLT_SPEED without their velocity added -- the bolt they see has it
 // and this one will not match theirs exactly, but it is scenery either way, and a tracer that
@@ -6246,8 +6267,50 @@ function refreshMode() {
     `<button class="pick ${m.id === flowMode ? 'on' : ''}" type="button" data-mode="${m.id}"><b>${m.name}</b><span>${m.sub}</span></button>`).join('');
 }
 
+// Sending the code rather than reading it out. A link is what people actually pass around, so
+// the share sheet gets one and the clipboard gets one; typing four characters off a screen is
+// the fallback, not the plan.
+//
+// Both routes can fail for reasons the page cannot see -- a share sheet the browser refuses, a
+// clipboard write denied outside a user gesture -- so neither is reported as done unless it
+// resolved, and the code stays on screen regardless.
+async function shareFlight() {
+  if (!net.sector) return;
+  const url = `${location.origin}${location.pathname}?flight=${net.sector}`;
+  const btn = $('linkCopy');
+  const say = (t) => { btn.textContent = t; setTimeout(() => { btn.textContent = 'Copy invite link'; }, 2200); };
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Sortie!', text: `Join my flight: ${net.sector}`, url }); return; }
+  } catch { /* dismissed, or refused: fall through to the clipboard */ }
+  try {
+    await navigator.clipboard.writeText(url);
+    say('Link copied');
+  } catch {
+    say(net.sector);   // nothing left but the code itself, which is already on screen
+  }
+}
+
+// Two states on one screen: choosing how to get into a flight, and then waiting in it with a
+// code to pass on. The first version joined and advanced in the same press, so the code was set
+// and the page left before anyone could read it -- and there was nowhere to wait at all.
 function refreshLink() {
   const inFlight = net.status === 'open' && net.sector;
+  $('linkPicks').hidden = inFlight;
+  $('linkWait').hidden = !inFlight;
+
+  if (inFlight) {
+    $('linkCode').hidden = true;
+    $('linkCodeOut').textContent = net.sector;
+    const others = [...net.peers.values()].map((p) => p.callsign);
+    // Said plainly, because it is the thing that decides whether anyone waits here: nobody has
+    // to. A pilot who arrives mid-sortie is caught up by the host on arrival.
+    $('linkRoster').innerHTML = others.length
+      ? `<b>${pilotName()}</b> (you), ${others.join(', ')} &mdash; ${others.length + 1} of 4.`
+      : 'Waiting for your wing. They can join now, or any time while you are flying.';
+    $('linkNote').textContent = net.host ? 'You are flight lead.' : 'You are on the wing.';
+    return;
+  }
+
   const PICKS = [
     { id: 'quick', name: 'Quick match', sub: 'Drop in with whoever is already up.' },
     { id: 'new', name: 'Open a flight', sub: 'Unlisted. You get a code to pass on.' },
@@ -6257,9 +6320,7 @@ function refreshLink() {
     `<button class="pick ${m.id === linkPick ? 'on' : ''}" type="button" data-link="${m.id}"><b>${m.name}</b><span>${m.sub}</span></button>`).join('');
   $('linkCode').hidden = linkPick !== 'code';
   if (linkPick === 'code') drawCode();
-  $('linkNote').textContent = inFlight
-    ? `In sector ${net.sector} · ${net.peers.size + 1} of 4 · you are ${net.host ? 'flight lead' : 'on the wing'}`
-    : net.error ? `The flight channel said: ${net.error}.` : 'Next opens the channel.';
+  $('linkNote').textContent = net.error ? `The flight channel said: ${net.error}.` : 'Next opens the channel.';
 }
 let linkPick = 'quick';
 
@@ -7289,6 +7350,8 @@ for (const id of FLOW) {
     if (t.dataset.link) { linkPick = t.dataset.link; return refreshLink(); }
     if (t.dataset.cspin) { const [n, d] = t.dataset.cspin.split(':'); return spinCode(+n, +d); }
     if (t.dataset.cslot !== undefined) { codeCur = +t.dataset.cslot; return drawCode(); }
+    if (t.id === 'linkCopy') return shareFlight();
+    if (t.id === 'linkLeave') { leaveFlight(); return refreshLink(); }
     if (t.id === 'codeGo') { await joinFlight({ sector: codeText() }); return refreshLink(); }
     const act = t.dataset.flow;
     if (act === 'back') return flowAt === 0 ? flowExit() : flowBack();
@@ -7301,7 +7364,10 @@ for (const id of FLOW) {
         else if (linkPick === 'new') await joinFlight({ create: 'private' });
         else await joinFlight({ sector: codeText() });
         refreshLink();
-        if (!(net.status === 'open' && net.sector)) return;   // refused: stay and say so
+        // Stay here either way. Refused, there is a reason on screen to read; joined, there is a
+        // code to pass on and a wing to wait for, and advancing in the same press meant neither
+        // was ever seen.
+        return;
       }
       // Solo means solo: a flight left over from a previous sortie would otherwise come with you.
       if (flowPages()[flowAt] === 'scMode' && flowMode === 'solo' && net.status === 'open') leaveFlight();
