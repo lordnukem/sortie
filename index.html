@@ -242,6 +242,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
     <div class="actions">
       <button class="launch" id="continueBtn" type="button" hidden>Continue</button>
       <button class="launch" id="launchBtn" type="button" disabled>Loading ships…</button>
+      <button class="launch ghost" id="titleFull" type="button" hidden>Full screen</button>
       <p class="sub" id="startHint">Enter · controller Start or A</p>
     </div>
     <div class="panel install" id="installPanel" hidden>
@@ -6152,10 +6153,22 @@ document.addEventListener('fullscreenchange', () => {
   if (!isFullscreen()) fsDeclined = true;
   refreshFullscreenBtn();
 });
+// Two buttons, one state. The pause one was there first; the title one exists because pressing
+// Launch already goes full screen, which is no help to someone who has not pressed it yet and
+// is reading the board with an address bar over the top of it. Both are hidden where they
+// cannot work -- installed from the home screen, where there is no chrome to lose, and iPhone
+// Safari, which has no Fullscreen API for anything but a video element (WebKit bug 206854 is
+// still open; iPad has had it since Safari 16.4). The install panel is the answer there, and
+// says so.
 function refreshFullscreenBtn() {
-  const b = $('pauseFull');
-  b.hidden = !canFullscreen || isStandalone();
-  b.textContent = isFullscreen() ? 'Leave full screen' : 'Full screen';
+  const label = isFullscreen() ? 'Leave full screen' : 'Full screen';
+  const off = !canFullscreen || isStandalone();
+  for (const id of ['pauseFull', 'titleFull']) {
+    const b = $(id);
+    if (!b) continue;
+    b.hidden = off;
+    b.textContent = label;
+  }
 }
 
 // Chrome and Edge hand us the install prompt to fire ourselves; everyone else needs telling how.
@@ -6263,6 +6276,7 @@ function refreshTitle() {
     : 'Enter · controller Start or A';
   refreshDifficulty();
   refreshFighter();
+  refreshFullscreenBtn();
   drawTitleBoard();
 }
 function drawTitleBoard() {
@@ -6647,6 +6661,7 @@ $('againBtn').addEventListener('click', () => { if (state === 'over') leaveDebri
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 $('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
 $('pauseFull').addEventListener('click', () => toggleFullscreen());
+$('titleFull').addEventListener('click', () => toggleFullscreen());
 $('installBtn').addEventListener('click', async () => {
   if (!installPrompt) return;
   const p = installPrompt;

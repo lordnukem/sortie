@@ -175,6 +175,17 @@ lobby is a title-screen view and never an in-flight overlay.
 *Proven by:* quick match, private code round trip, list refresh and leave, on desktop and at phone
 width.
 
+### 5b — A full-screen button on the title  (~20 lines, done)
+
+Pressing Launch already goes full screen, which is no help to someone who has not pressed it
+yet and is reading the leader board with an address bar over the top. The machinery existed;
+only the title-screen control was missing.
+
+It hides itself where it cannot work: installed from the home screen, where there is no chrome
+to lose, and **iPhone Safari, which has no Element Fullscreen API at all** — WebKit bug 206854
+is still open and iOS 26 did not change it, while iPad has had it since Safari 16.4. On iPhone
+the Add to Home Screen panel is the whole answer, and already says so.
+
 ### 6 — Balance and the co-op board  (~200 lines)
 
 Enemy scaling per pilot count, the co-op board view, the debrief showing both your contribution
