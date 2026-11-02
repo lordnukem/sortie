@@ -188,3 +188,35 @@ throw landed outside every `try/catch`, and closing a browser tab mid-broadcast 
 **Each client sends its own `X-Forwarded-For`.** That is how the relay sees distinct pilots in
 production, since nginx sets it, and it stops the per-address cap from masking the per-sector
 one — a confusion that had already turned a real test into a skipped one.
+
+## Playing co-op locally
+
+The two halves of co-op only meet behind a reverse proxy: `index.html` resolves its API to a
+bare `/api` on localhost and `net.js` resolves the socket to a same-origin `/ws`, so without
+something joining them on one port neither can be exercised. `devserve.js` is that something.
+
+```bash
+DB_PATH=/tmp/t.db PORT=8796 GEO=0 node server/server.js &
+node tools/devserve.js 8777 8796
+node tools/ghost-pilot.js --port 8796 --sector YAH3 --callsign WINGMAN
+```
+
+**`ghost-pilot.js` is the second pilot, and it exists because two browsers do not work here.**
+Two WebGL contexts under a software renderer wedge the machine before they prove anything — the
+first attempt at a two-browser test timed out three times and never rendered a frame. The ghost
+joins, reads the tick like any client, and flies station on whoever else is in the sector. When a
+peer fails to appear on screen, the fault is in the client rather than in whatever the other
+browser happened to be doing.
+
+Two things it taught, both now in its comments. It has to **lead** the ship it follows: a pilot
+doing 40 a second leaves their last reported point behind before the next tick, so a ghost that
+orbits that point sits permanently astern and never once appears on screen. And the dev proxy has
+to **synthesise a per-connection address**, because in production every pilot arrives from their
+own address and nginx forwards it, while locally every browser is `127.0.0.1` — four tabs would
+exhaust the relay's per-address cap and the fifth would be refused for a reason that does not
+exist in the real deployment.
+
+One thing that looks like a bug and is not: **the join takes about eight seconds**. The socket is
+created immediately but `onopen` cannot dispatch until the main thread finishes parsing the 1.9 MB
+ship bundle. Measured: socket created at 0s, join frame sent between 5s and 10s, everything
+correct from there.

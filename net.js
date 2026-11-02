@@ -41,14 +41,15 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 // Four decimals is finer than a metre at this scale and roughly halves the bytes on the wire.
 const q = (n) => Math.round(n * 1e4) / 1e4;
 
-// Where the relay lives. The game is served from two hosts -- the VPS and GitHub Pages -- and
-// Pages is a different origin that cannot use a relative URL, so the socket is absolute from
-// there. That cross-origin case is exactly why the relay checks Origin against an allowlist.
+// Where the relay lives. The rule is the same one index.html uses to find the API, and for the
+// same reason: a host that serves /api also serves /ws behind the same nginx, so the socket is
+// same-origin there and the port follows the page. Everywhere else -- GitHub Pages, which is a
+// different origin entirely -- it is absolute. That cross-origin case is exactly why the relay
+// checks Origin against an allowlist.
+const SAME_ORIGIN = ['sortiethegame.com', 'www.sortiethegame.com', '72.62.196.152', '127.0.0.1', 'localhost'];
 export function relayURL() {
-  const local = ['sortiethegame.com', 'www.sortiethegame.com', '72.62.196.152'].includes(location.hostname);
-  if (local) return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-  if (['127.0.0.1', 'localhost'].includes(location.hostname)) return `ws://${location.hostname}:8791/ws`;
-  return 'wss://sortiethegame.com/ws';
+  if (!SAME_ORIGIN.includes(location.hostname)) return 'wss://sortiethegame.com/ws';
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 }
 
 // One other pilot, as the game sees them: who they are, what they are flying, and a short
@@ -216,8 +217,14 @@ export class Net {
   }
 
   // Called every frame; sends at STATE_HZ. The relay caps messages per second and a 60fps game
-  // pushing state every frame would spend that budget three times over on its own.
-  tickState(pos, rot, vel, throttle, firing) {
+  // pushing state every frame would spend that budget three times over on its own. It is also
+  // what keeps the connection alive: the relay drops a pilot who has said nothing for ten
+  // seconds, so this runs on the title screen too, not only in a sortie.
+  //
+  // `extra` carries hull, shield, score and dead. Those are self-reported, which is correct in
+  // co-op: nobody else gets a say in how badly you are hurt, and the only thing lying about it
+  // buys you is a wrong number over your own ship.
+  tickState(pos, rot, vel, extra = {}) {
     if (!this.connected) return;
     const t = now();
     if (t - this._stateAt < 1000 / STATE_HZ) return;
@@ -226,8 +233,12 @@ export class Net {
       pos: [q(pos.x), q(pos.y), q(pos.z)],
       rot: [q(rot.x), q(rot.y), q(rot.z), q(rot.w)],
       vel: [q(vel.x), q(vel.y), q(vel.z)],
-      throttle: q(throttle),
-      firing: !!firing,
+      throttle: q(extra.throttle || 0),
+      firing: !!extra.firing,
+      hull: q(extra.hull ?? 100),
+      shield: q(extra.shield ?? 100),
+      score: Math.round(extra.score || 0),
+      dead: !!extra.dead,
     });
     if (t - this._pingAt > PING_MS) { this._pingAt = t; this.send('ping', { t }); }
   }

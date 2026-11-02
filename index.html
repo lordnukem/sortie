@@ -438,6 +438,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+// The socket lives in its own file; see the note at the top of net.js for why. The ?v= is
+// bumped by hand on every change to it, the same discipline as CACHE in sw.js, because a
+// module served under an unchanged URL is how eleven ships once arrived as five.
+import { net } from './net.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -5479,6 +5483,85 @@ function updateFlow(dt) {
 }
 
 // ---------------------------------------------------------------- game flow
+// ---------------------------------------------------------------- the rest of the flight
+// Other human pilots. They are drawn like wingmen and fly like wingmen, but nothing in here
+// decides where they are: every position arrives off the wire, and net.sample() hands back
+// where a peer was 100ms ago so a 20 Hz feed can be drawn at 60 without stuttering.
+//
+// A peer is deliberately NOT a wingman. `wings` is AI, with hp, a formation slot and a fire
+// cooldown; a peer has none of those and must not be given fakes that the network then
+// overwrites. Two sources of truth for whether someone is alive is the bug that writes itself.
+const peers = new Map();   // id -> { id, peer, obj }
+
+function addPeer(p) {
+  if (peers.has(p.id)) return;
+  const obj = buildFriendly(false);
+  obj.visible = false;     // nothing to show until a snapshot has placed it
+  scene.add(obj);
+  peers.set(p.id, { id: p.id, peer: p, obj });
+}
+function dropPeer(id) {
+  const rec = peers.get(id);
+  if (!rec) return;
+  scene.remove(rec.obj);
+  disposeObj(rec.obj);
+  peers.delete(id);
+}
+function clearPeers() { for (const id of [...peers.keys()]) dropPeer(id); }
+
+function updatePeers() {
+  // net.peers is who exists; this map is only what is currently in the scene. Reconciling the
+  // two every frame means a disconnect, a reconnect and a sector change all need no handling.
+  for (const [id, p] of net.peers) if (!peers.has(id)) addPeer(p);
+  for (const id of [...peers.keys()]) if (!net.peers.has(id)) dropPeer(id);
+
+  for (const [, rec] of peers) {
+    const s = net.sample(rec.peer);
+    // A pilot who is down is aboard the Halcyon waiting on a fighter, not drifting in the
+    // fight. Hide the hull rather than leave a wreck flying in formation; the flight list
+    // still names them, which is the thing their wingmen actually need to know.
+    if (!s || rec.peer.dead) { rec.obj.visible = false; continue; }
+    rec.obj.position.set(s.pos[0], s.pos[1], s.pos[2]);
+    rec.obj.quaternion.set(s.rot[0], s.rot[1], s.rot[2], s.rot[3]);
+    rec.obj.visible = true;
+  }
+}
+
+// Joining a flight. The lobby is its own item; these two functions are the seam it will call,
+// and until then they are reachable from the URL -- ?flight=ABCD joins that sector, ?flight=new
+// opens a private one. That is not test scaffolding kept in by accident: an invite is a link,
+// and a link is the thing people actually send each other.
+function pilotName() {
+  try { return (localStorage.getItem('sortie.name') || '').toUpperCase() || 'GOLD'; }
+  catch { return 'GOLD'; }
+}
+async function joinFlight({ sector = null, create = null, callsign = null } = {}) {
+  const want = { callsign: callsign || pilotName(), ship: (FIGHTER && FIGHTER.id) || 'exec' };
+  if (create) want.create = create; else if (sector) want.sector = sector;
+  const joined = await net.connect(want);
+  if (!joined) {
+    comm('HALCYON', `Flight channel refused: ${net.error || 'no answer'}.`, 'friend');
+    return false;
+  }
+  comm('HALCYON', net.host
+    ? `You have the flight. Sector ${net.sector} -- send that code to your wing.`
+    : `Joined sector ${net.sector}. ${net.peers.size} other${net.peers.size === 1 ? '' : 's'} on station.`, 'friend');
+  return true;
+}
+function leaveFlight() {
+  net.close();
+  clearPeers();
+}
+// Said once, when someone arrives or goes, because the flight list on the HUD shows the state
+// and the radio should carry the change.
+net.on('player_joined', (m) => comm('HALCYON', `${m.player.callsign} is on station.`, 'friend'));
+net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+net.on('run_end', (m) => {
+  if (m.reason !== 'host_left') return;
+  comm('HALCYON', 'Flight lead has jumped out. Sortie scrubbed.', 'enemy');
+  clearPeers();
+});
+
 function clearWorld() {
   for (const e of enemies) { scene.remove(e.obj); disposeObj(e.obj); }
   for (const b of bolts) scene.remove(b.m);
@@ -5487,6 +5570,9 @@ function clearWorld() {
   for (const m of mines) { scene.remove(m.obj); disposeObj(m.obj); }
   for (const p of pickups) { scene.remove(p.obj); disposeObj(p.obj); }
   for (const w of wings) { scene.remove(w.obj); disposeObj(w.obj); }
+  // Peers are reconciled against net.peers every frame, but that only runs while a sortie is
+  // in progress -- without this, leaving to the title would strand their ships in the scene.
+  clearPeers();
   enemies = []; bolts = []; missiles = []; rocks = []; rockSpawns.length = 0; wings = [];
   mines = []; pickups = [];
   spawnQueue = []; comms = []; holdout = null;
@@ -6733,6 +6819,17 @@ function drawHud() {
     let wy = isTouch ? 98 : 96;
     for (const w of wings) { c.fillText(`${w.name} ${Math.round((w.hp / WING_HP) * 100)}%`, tally, wy); wy += 13; }
   }
+  // The people, under the AI. A pilot who is down still gets a line: knowing a wing is waiting
+  // on a fighter is the difference between holding the position and flying into the gap.
+  if (peers.size) {
+    c.font = MONO(11);
+    let ry = (isTouch ? 98 : 96) + wings.length * 13;
+    for (const [, rec] of peers) {
+      c.fillStyle = rec.peer.dead ? C.dim : C.hud;
+      c.fillText(rec.peer.dead ? `${rec.peer.callsign} DOWN` : `${rec.peer.callsign} ${Math.round(rec.peer.hull)}%`, tally, ry);
+      ry += 13;
+    }
+  }
   c.textAlign = 'right';
   if (hi > 0) { c.textAlign = 'center'; c.font = MONO(11); c.fillStyle = C.dim; c.fillText(`HIGH ${String(hi).padStart(6, '0')}`, cx, 22); }
 
@@ -6993,6 +7090,41 @@ function drawFlightPanel(c, R, sy, pw, ph, px, py, scopes = true) {
   c.font = MONO(16); c.fillStyle = player.missiles ? C.amber : C.red;
   c.fillText(`×${player.missiles}`, tx + 16, py + 68);
 
+  drawPeerTags(c);
+}
+
+// Nameplates over the other pilots. At four hundred metres and closing, the only thing telling
+// a friendly Striker from a hostile one is the label -- the models are the same hull, which is
+// the whole reason the wingmen fly it.
+const _pt = { x: 0, y: 0, behind: false, lx: 0, ly: 0, lz: 0 };
+const TAG_RANGE = 1600;
+function drawPeerTags(c) {
+  if (!peers.size) return;
+  c.textAlign = 'center';
+  for (const [, rec] of peers) {
+    if (!rec.obj.visible) continue;
+    proj(rec.obj.position, _pt);
+    if (_pt.behind) continue;
+    const d = -_pt.lz;              // camera space looks down -z, so depth is the negated z
+    if (d < 10 || d > TAG_RANGE) continue;
+    // Faded out with range rather than cut off at it: a plate that pops out of existence reads
+    // as a contact lost, which is exactly the wrong thing to tell someone mid-fight.
+    c.globalAlpha = clamp(1.25 - d / TAG_RANGE, 0.15, 1);
+    const y = _pt.y - 18;
+    c.font = MONO(11); c.fillStyle = C.hud;
+    c.fillText(rec.peer.callsign, _pt.x, y);
+    // Hull, and only when there is something to say about it. A row of full bars over every
+    // friendly is noise; a single broken one is information.
+    const h = clamp(rec.peer.hull / 100, 0, 1);
+    if (h < 1) {
+      const w = 34;
+      c.fillStyle = 'rgba(143, 243, 255, 0.18)';
+      c.fillRect(_pt.x - w / 2, y + 4, w, 3);
+      c.fillStyle = h > 0.35 ? C.green : C.red;
+      c.fillRect(_pt.x - w / 2, y + 4, w * h, 3);
+    }
+  }
+  c.globalAlpha = 1;
 }
 
 function bar(c, x, y, w, label, frac, color) {
@@ -7040,6 +7172,9 @@ function drawScope(c, x, y, R, front) {
   for (const m of mines) if (!m.dead && m.armed) blip(m.obj.position, C.red, 4.5, true);
   for (const p of pickups) if (!p.dead) blip(p.obj.position, PICKUPS[p.kind].color, 3);
   for (const w of wings) if (!w.dead) blip(w.obj.position, C.green, 3.5);
+  // Cyan rather than the wingmen's green, and a shade larger: on a scope this small the only
+  // question worth answering at a glance is which of those friendlies is a person.
+  for (const [, rec] of peers) if (rec.obj.visible) blip(rec.obj.position, C.hud, 4.5);
   for (const s of missiles) blip(s.pos, C.amber, 2.5);
   c.restore();
   c.globalAlpha = 1;
@@ -7057,6 +7192,15 @@ function update(dt) {
   banner.t += dt;
   RUNNING.color.setRGB(Math.sin(clock * 3) > 0.6 ? 6 : 0.4, 0.5, 0.4);
   const inp = readInput(dt);
+  // Tell the flight where this ship is, whatever screen we are on. A pilot waiting on the title
+  // with the lobby open is still in the sector, and a socket that says nothing for ten seconds
+  // is dropped -- so this is the heartbeat as much as it is the position.
+  if (net.connected) {
+    net.tickState(player.rig.position, player.rig.quaternion, player.vel, {
+      throttle: player.throttle, firing: player.fireCd > 0,
+      hull: player.hull, shield: player.shield, score, dead: !player.alive && state === 'play',
+    });
+  }
 
   if (state === 'title') {
     titleCamera(dt);
@@ -7067,6 +7211,7 @@ function update(dt) {
     enemies = enemies.filter((e) => !e.dead);
     updateWings(dt);
     if (wings.some((w) => w.dead)) wings = wings.filter((w) => !w.dead);
+    updatePeers();
     updateBolts(dt);
     updateMissiles(dt);
     updateRocks(dt);
@@ -7132,6 +7277,17 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 refreshTitle();
 routeHash();   // a link straight to #controls or #about opens there
+// ?flight=ABCD joins that sector, ?flight=new opens a private one. Deliberately a query
+// parameter and not a hash: the hash already routes the reading views, and an invite that
+// collides with #controls would be a puzzle rather than a link.
+const wantFlight = new URLSearchParams(location.search).get('flight');
+if (wantFlight) {
+  const w = wantFlight.toLowerCase();
+  const opts = w === 'new' ? { create: 'private' }
+    : w === 'quick' ? {}                       // matchmake: no code to pass around at all
+    : { sector: wantFlight.toUpperCase().slice(0, 4) };
+  joinFlight(opts);
+}
 ping('load');  // the denominator: this fires whether or not anyone presses Launch
 frame();
 </script>
