@@ -452,6 +452,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <h2>Combat record</h2>
       <dl class="stats">
         <dt>Score</dt><dd id="dScore">0</dd>
+        <dt id="dTeamK" hidden>Flight total</dt><dd id="dTeam" hidden>0</dd>
         <dt>Waves cleared</dt><dd id="dWaves">0</dd>
         <dt>Swarm kills</dt><dd id="dKills">0</dd>
         <dt>Asteroids destroyed</dt><dd id="dRocks">0</dd>
@@ -3860,6 +3861,8 @@ function loadRun() {
 // an https page may not fetch http, and no browser offers a way round it.
 const API = ['sortiethegame.com', 'www.sortiethegame.com', '72.62.196.152', '127.0.0.1', 'localhost'].includes(location.hostname)
   ? '/api' : 'https://sortiethegame.com/api';
+let coopBoard = null;        // the co-op board, which ranks flights rather than pilots
+let flightId = null;         // this sortie's id, so four pilots posting it make one row
 let globalBoard = null;      // rows from the server, or null while unreachable
 let globalTried = false;
 let boardView = 'global';    // which one the title screen is showing
@@ -3885,6 +3888,38 @@ function runTelemetry(name, sc, wv, level) {
     localTime: new Date().toString().slice(0, 33),
   };
 }
+async function fetchCoop() {
+  try {
+    const res = await fetch(`${API}/coop?limit=${GLOBAL_KEEP}`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error(res.status);
+    const j = await res.json();
+    coopBoard = Array.isArray(j.board) ? j.board : null;
+  } catch { coopBoard = null; }
+  return coopBoard;
+}
+// Every pilot posts the same sortie. The server's flight id is unique, so the first one through
+// writes the row and the rest are told they are duplicates -- which is the point: a flight does
+// not lose its run because the pilot who happened to be hosting closed the tab first.
+async function postCoop(name, team, wv) {
+  if (!flightId) return { ok: false, why: 'no flight' };
+  const roster = [pilotName(), ...[...net.peers.values()].map((p) => p.callsign)].join(', ');
+  try {
+    const res = await fetch(`${API}/coop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...runTelemetry(name, team, wv, LEVEL.id),
+        flight: flightId, pilots: Math.max(2, flightSize()), roster,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, why: j.why || j.error || res.status };
+    coopBoard = Array.isArray(j.board) ? j.board : coopBoard;
+    return { ok: true, rank: j.rank, duplicate: !!j.duplicate };
+  } catch { return { ok: false, why: 'offline' }; }
+}
+
 async function postGlobal(name, sc, wv, level) {
   try {
     const res = await fetch(`${API}/scores`, {
@@ -5486,7 +5521,7 @@ function startWave(n) {
     // frequent top-ups, since hull and shields are restored at each wave start, so this buys
     // survivability as well as pace.
     const flights = [];
-    const drones = n === 1 ? 4 : 4 + Math.floor((n - 1) * 1.2);
+    const drones = coopScale(n === 1 ? 4 : 4 + Math.floor((n - 1) * 1.2));
     // Split into balanced flights rather than fours-then-remainder, which on the new smaller
     // counts left a flight of one: five drones used to arrive as 4 and then a single straggler
     // jumping in alone fourteen seconds later. Five now arrive as 3 and 2.
@@ -5494,8 +5529,8 @@ function startWave(n) {
     for (let i = 0; i < nf; i++) {
       flights.push(['drone', Math.round((drones * (i + 1)) / nf) - Math.round((drones * i) / nf)]);
     }
-    if (n >= 2) flights.push(['lancer', Math.min(5, 1 + Math.floor((n - 2) / 2))]);
-    if (n >= 3) flights.push(['warden', Math.min(3, 1 + Math.floor((n - 3) / 4))]);
+    if (n >= 2) flights.push(['lancer', coopScale(Math.min(5, 1 + Math.floor((n - 2) / 2)))]);
+    if (n >= 3) flights.push(['warden', coopScale(Math.min(3, 1 + Math.floor((n - 3) / 4)))]);
     flights.forEach(([type, count], i) => spawnQueue.push({ t: 2.5 + i * 7, type, count }));
     if (n >= 4 && Math.random() < 0.6) spawnQueue.push({ t: 20, type: 'raider' });
     if (n >= 2) spawnField(fieldSize(n, kind));
@@ -5841,6 +5876,23 @@ const _gp = V(), _gd = V(), _gq = new THREE.Quaternion();
 // summons the soft keyboard over the top of a game that has just gone full screen. So the
 // callsign is the three initials the player already has, and the sector code gets the same
 // wheel the initials use, which works from a keyboard, a thumb or a gamepad without one.
+// How many pilots are in this sortie, this client included. One when nobody is connected,
+// which keeps every number below identical to solo play.
+const flightSize = () => (net.status === 'open' && net.sector ? net.peers.size + 1 : 1);
+
+// Co-op balance, and both of these are starting values that want playtesting rather than
+// arithmetic. They are named and sit together for exactly that reason.
+//
+// Ships scale sub-linearly: four pilots are better than four times one, because they share
+// targets and arrive together, but they are also sharing one pool of fighters, so a linear
+// ramp on top of that was likely to be punishing rather than hard.
+const COOP_SHIPS_PER_PILOT = 0.7;
+const coopScale = (n) => Math.max(1, Math.round(n * (1 + COOP_SHIPS_PER_PILOT * (flightSize() - 1))));
+// And the pool grows by one fighter per extra pilot. Three between four pilots would end most
+// sorties inside two waves; this keeps roughly the solo allowance each while the pool itself
+// stays shared, which is the part that makes a flight watch out for each other.
+const COOP_LIVES_PER_PILOT = 1;
+
 const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // matches the relay: no O/0, no I/1
 const codeAt = [0, 0, 0, 0];
 let codeCur = 0, lobbyTimer = null, lobbyRows = [];
@@ -5946,7 +5998,11 @@ function startGame() {
   fullscreenOnLaunch();
   dropKey(SAVE_KEY);
   clearWorld();
-  score = 0; lives = 3; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  score = 0; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  // One id for the sortie, so whichever pilots post it end up as one row rather than four.
+  flightId = net.status === 'open' && net.sector ? `${net.sector}-${Date.now().toString(36)}` : null;
+  lives = 3 + COOP_LIVES_PER_PILOT * (flightSize() - 1);
+  if (net.connected && net.host) net.send('lives', { n: lives });
   objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0; runT = 0;
   resetPlayer();
   player.missiles = 6;
@@ -6037,7 +6093,7 @@ function renderBoard(el, mine = -1, rows = null, opts = {}) {
     ? '<tr class="gap"><td class="r">⋯</td><td class="nm"></td><td class="sc"></td><td class="wv"></td></tr>'
     : `<tr class="${x.i === mine ? 'you' : ''}">
       <td class="r">${x.i + 1}</td><td class="nm">${esc(x.r.name)}</td>
-      <td class="sc">${(x.r.score | 0).toLocaleString()}</td><td class="wv">W${x.r.wave | 0}</td></tr>`)).join('');
+      <td class="sc">${(x.r.score | 0).toLocaleString()}</td><td class="wv">W${x.r.wave | 0}${opts.pilots && x.r.pilots ? ` · ${x.r.pilots}p` : ''}</td></tr>`)).join('');
   return b.length;
 }
 // A hundred rows will not fit on a debrief card, and the rows that matter are the very top and
@@ -6146,6 +6202,13 @@ function flightFlying() {
   for (const [, p] of net.peers) if (!p.dead) return true;
   return false;
 }
+// What the flight scored between them. Each pilot reports their own running total on `state`,
+// which in co-op is the only party that knows it.
+function teamScore() {
+  let t = Math.round(score * LEVEL.score);
+  for (const [, p] of net.peers) t += Math.round((p.score || 0) * LEVEL.score);
+  return t;
+}
 function gameOver() {
   if (net.connected && net.host) net.send('run_end', { reason: 'lost' });
   state = 'over';
@@ -6160,6 +6223,13 @@ function gameOver() {
   // flown at different settings against each other.
   const finalScore = Math.round(score * LEVEL.score);
   $('dScore').textContent = finalScore.toLocaleString();
+  // In a flight, your own score is still yours -- it is what you shot -- and the total is what
+  // the board will rank. Showing only the total would hide which of you had the sortie.
+  const coop = !!flightId;
+  const team = coop ? teamScore() : 0;
+  $('dTeamK').hidden = !coop;
+  $('dTeam').hidden = !coop;
+  if (coop) $('dTeam').textContent = `${team.toLocaleString()} · ${Math.max(2, flightSize())} pilots`;
   $('dWaves').textContent = String(Math.max(0, wave - (waveActive ? 1 : 0)));
   $('dKills').textContent = String(kills);
   $('dRocks').textContent = String(rocksDestroyed);
@@ -6183,10 +6253,24 @@ function gameOver() {
   const wavesFlown = Math.max(0, wave - (waveActive ? 1 : 0));
   // Either board is reason enough to ask for a name: a score can miss this browser's top twenty
   // and still make the global one, and the reverse is just as likely on a shared machine.
-  if (boardRank(finalScore) >= 0 || globalRank(finalScore) >= 0) openEntry(finalScore, wavesFlown);
-  const showGlobal = globalBoard && globalBoard.length;
-  $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
-  $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
+  if (!coop && (boardRank(finalScore) >= 0 || globalRank(finalScore) >= 0)) openEntry(finalScore, wavesFlown);
+  if (coop) {
+    // A flight's run goes to the flight board, and nowhere near the solo one: four guns on one
+    // wave make a kill cheaper, and keeping one board that means something was the whole point
+    // of the difficulty multiplier.
+    $('dBoardWhich').textContent = 'Co-op flights · sending…';
+    $('dBoardPanel').hidden = false;
+    postCoop(pilotName(), team, wavesFlown).then((out) => {
+      renderBoard($('dBoard'), -1, coopBoard, { window: true, pilots: true });
+      $('dBoardWhich').textContent = out.ok
+        ? `Co-op flights · your flight is #${out.rank}${out.duplicate ? ' (already posted by a wingman)' : ''}`
+        : `Co-op flights · the board refused the run (${out.why})`;
+    });
+  } else {
+    const showGlobal = globalBoard && globalBoard.length;
+    $('dBoardWhich').textContent = showGlobal ? 'Global' : 'This browser';
+    $('dBoardPanel').hidden = renderBoard($('dBoard'), -1, showGlobal ? globalBoard : null, { window: true }) === 0;
+  }
   $('over').hidden = false;
   overShown = performance.now();
 }
@@ -6408,6 +6492,7 @@ function refreshTitle() {
   // Asked for once per visit to the title, not per frame: a board that is a few minutes stale is
   // not worth a request every time the screen is redrawn.
   fetchGlobal().then(drawTitleBoard);
+  fetchCoop().then(drawTitleBoard);
   const r = loadRun();
   const cont = $('continueBtn');
   cont.hidden = !r;
@@ -6421,18 +6506,38 @@ function refreshTitle() {
   refreshFullscreenBtn();
   drawTitleBoard();
 }
+// The next source worth offering, skipping any that is empty. Returning the current one means
+// there is nothing to swap to, and the button hides itself.
+function nextBoardView() {
+  const have = { local: true, global: !!(globalBoard && globalBoard.length), coop: !!(coopBoard && coopBoard.length) };
+  const order = ['global', 'coop', 'local'];
+  const at = order.indexOf(boardView);
+  for (let i = 1; i <= order.length; i++) {
+    const v = order[(at + i) % order.length];
+    if (have[v]) return v;
+  }
+  return boardView;
+}
 function drawTitleBoard() {
   refreshInstall();
-  const useGlobal = boardView === 'global' && globalBoard && globalBoard.length;
-  const rows = useGlobal ? globalBoard : loadBoard();
-  const n = renderBoard($('tBoard'), -1, rows, { limit: BOARD_SHOW });
+  // Three sources now, and the button walks round them. Co-op is a separate board rather than
+  // a filter: a flight's kills are cheaper than a lone pilot's, so the two do not compare.
+  const haveGlobal = !!(globalBoard && globalBoard.length);
+  const haveCoop = !!(coopBoard && coopBoard.length);
+  if (boardView === 'global' && !haveGlobal) boardView = 'local';
+  if (boardView === 'coop' && !haveCoop) boardView = haveGlobal ? 'global' : 'local';
+  const rows = boardView === 'global' ? globalBoard : boardView === 'coop' ? coopBoard : loadBoard();
+  const n = renderBoard($('tBoard'), -1, rows, { limit: BOARD_SHOW, pilots: boardView === 'coop' });
   $('tBoardPanel').hidden = n === 0 && boardView === 'local';
   const deep = n > BOARD_SHOW ? ` · top ${BOARD_SHOW} of ${n}` : '';
-  $('tBoardWhich').textContent = useGlobal ? `Global${deep}`
+  $('tBoardWhich').textContent = boardView === 'global' ? `Global${deep}`
+    : boardView === 'coop' ? `Co-op flights${deep}`
     : globalBoard === null && globalTried ? 'This browser · the global board is unreachable'
     : `This browser${deep}`;
-  $('tBoardSwap').hidden = !(globalBoard && globalBoard.length);
-  $('tBoardSwap').textContent = useGlobal ? 'Show this browser' : 'Show global';
+  const next = nextBoardView();
+  $('tBoardSwap').hidden = next === boardView;
+  $('tBoardSwap').textContent = next === 'global' ? 'Show global'
+    : next === 'coop' ? 'Show co-op' : 'Show this browser';
   if (n === 0) $('tBoard').innerHTML = '<tr><td class="r"></td><td class="nm">—</td><td class="sc">no scores yet</td><td class="wv"></td></tr>';
   resetBoardScroll();
 }
@@ -6783,10 +6888,7 @@ $('shipLever').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ship]');
   if (b) setFighter(b.dataset.ship);
 });
-$('tBoardSwap').addEventListener('click', () => {
-  boardView = boardView === 'global' ? 'local' : 'global';
-  drawTitleBoard();
-});
+$('tBoardSwap').addEventListener('click', () => { boardView = nextBoardView(); drawTitleBoard(); });
 $('flightBack').addEventListener('click', () => closeView());
 // Delegated, so redrawing the wheel or the lobby list never loses its own controls.
 $('flight').addEventListener('click', async (e) => {

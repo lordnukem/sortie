@@ -192,12 +192,22 @@ to lose, and **iPhone Safari, which has no Element Fullscreen API at all** — W
 is still open and iOS 26 did not change it, while iPad has had it since Safari 16.4. On iPhone
 the Add to Home Screen panel is the whole answer, and already says so.
 
-### 6 — Balance and the co-op board  (~200 lines)
+### 6 — Balance and the co-op board  (~200 lines, done)
 
 Enemy scaling per pilot count, the co-op board view, the debrief showing both your contribution
 and the team total.
 
-*Proven by:* playtesting, which is the only thing that can prove it.
+**The two balance numbers are starting values, not answers.** They are named constants sitting
+together for exactly that reason:
+
+- `COOP_SHIPS_PER_PILOT = 0.7` — ships scale sub-linearly, because four pilots are better than
+  four times one (they share targets and arrive together) while also sharing one pool of
+  fighters. A linear ramp on top of a shared pool looked likely to be punishing rather than hard.
+- `COOP_LIVES_PER_PILOT = 1` — the pool grows by one fighter per extra pilot. Three between four
+  would end most sorties inside two waves; this keeps roughly the solo allowance each while the
+  pool itself stays shared, which is the part that makes a flight watch out for each other.
+
+Neither can be settled by arithmetic. *Proven by:* playtesting, which is the only thing that can.
 
 ## What is not in this sprint
 

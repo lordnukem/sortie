@@ -25,6 +25,9 @@ const SWARM = Number(arg('swarm', 0));
 // --attack makes the ghost report hits on whatever the host says is out there, which is the
 // only way to test that kill credit reaches the pilot who actually shot.
 const ATTACK = process.argv.includes('--attack');
+// --endrun N ends the sortie for the flight after N seconds. Only a host may, which is the
+// point: it is the only way to reach a guest's co-op debrief without two browsers.
+const ENDRUN = Number(arg('endrun', 0));
 const DMG = Number(arg('dmg', 60));
 // Spawn hp per type, so a drop can be told from a fresh ship. Only used for the report.
 const seenHp = new Map();
@@ -200,6 +203,8 @@ if (SWARM > 0) {
 }
 const r2 = (n) => Math.round(n * 100) / 100;
 const r3 = (n) => Math.round(n * 1000) / 1000;
+
+if (ENDRUN > 0) setTimeout(() => { console.log(' -> run_end (lost)'); say({ type: 'run_end', reason: 'lost' }); }, ENDRUN * 1000);
 
 setTimeout(() => {
   console.log(`done -- ticks ${gotTicks}, enemy snapshots ${gotFoes}`
