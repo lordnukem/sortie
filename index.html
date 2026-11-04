@@ -4836,6 +4836,15 @@ const WING_LABEL = ['Gold Two', 'Gold Three', 'Gold Four'];
 // Right wing, left wing, and high trail. The third station is deliberately not a third abreast
 // position: two ships on the same side at these speeds read as one contact and trade paint.
 const WING_SLOT = [[18, 2, 12], [-18, 2, 12], [0, 14, 34]];
+// How far from Lead a Swarm ship has to be before it is the flight's problem, and how far a
+// wingman may stray before it breaks off and comes home. Both are measured from the PLAYER, not
+// from the wingman: that one choice is the difference between an escort and three more hunters.
+const WING_GUARD = 420, WING_LEASH = 560;
+// A wingman solves the same perfect intercept the Swarm does, so it needs the same dispersion or
+// it is a hitscan turret. A shade tighter than the Swarm's floor (0.05) because they are good,
+// just not perfect, and a slower trigger than the old 0.3 s: the flight's job is to put pressure
+// and tracers on whatever is tailing Lead, not to clear the wave while Lead watches.
+const WING_SPREAD = 0.04, WING_FIRE_CD = 0.45;
 function spawnWingman(pos, quiet = false, want = -1, rescued = false) {
   if (wings.length >= WING_MAX) return null;
   const taken = wings.map((w) => w.slot);
@@ -4864,27 +4873,60 @@ const _wa = V(), _wf = V(), _wd = V();
 function updateWings(dt) {
   for (const w of wings) if (!w.dead) updateWingman(w, dt);
 }
-function updateWingman(w, dt) {
-  let tgt = player.target && !player.target.dead ? player.target : null;
-  if (!tgt) {
-    let best = 450 * 450;
-    for (const e of enemies) {
-      if (e.dead || e.state === 'show') continue;
-      const d2 = e.obj.position.distanceToSquared(w.obj.position);
-      if (d2 < best) { best = d2; tgt = e; }
-    }
+// What the flight picks is the whole behaviour. The old rule was "Lead's target, else the nearest
+// ship within 450 of ME", which is an opportunist: it took the flight off station after anything
+// that wandered close, and Lead's own lock was an order rather than a suggestion. Now the bubble
+// is drawn around LEAD, and inside it the ship hunting Lead outranks the ship that is merely
+// near, so a wingman leaves a drone alone to go after the warden lining up a beam.
+function wingThreat(w) {
+  let best = null, score = 0;
+  for (const e of enemies) {
+    if (e.dead || e.state === 'show') continue;
+    const dp = e.obj.position.distanceTo(player.rig.position);
+    if (dp > WING_GUARD) continue;
+    let s = WING_GUARD - dp;
+    if (e.prey === PLAYER) s += 400;
+    // A beam run is the one thing Lead cannot simply out-fly, so it outranks everything short of
+    // a grip that has already closed.
+    if (e.state === 'beam') s += 900;
+    else if (e.type === 'warden' && e.prey === PLAYER) s += 500;
+    if (player.capturing && player.capturing.w === e) s += 4000;
+    // Lead's lock breaks a tie; it no longer wins outright.
+    if (e === player.target) s += 120;
+    // A small pull towards what this wingman is already near, so three ships with the same
+    // priorities still split across two attackers instead of stacking on one.
+    s += 40 * (1 - Math.min(1, e.obj.position.distanceTo(w.obj.position) / WING_LEASH));
+    if (s > score) { score = s; best = e; }
   }
+  return best;
+}
+function updateWingman(w, dt) {
+  // Off the leash, nothing else matters: come home. Without this a chase at the edge of the
+  // bubble walks the flight off the screen one engagement at a time.
+  const strayed = w.obj.position.distanceTo(player.rig.position) > WING_LEASH;
+  const tgt = player.alive && !strayed ? wingThreat(w) : null;
   if (tgt) {
     leadPoint(w.obj.position, tgt, 260, _wa);
     const dist = w.obj.position.distanceTo(tgt.obj.position);
     if (dist < 30) _wa.addScaledVector(V(0, 1, 0), 60);
+    // Interpose rather than tail-chase: pull the steer point a quarter of the way towards Lead so
+    // the wingman arrives on the inside of the turn, between Lead and whatever is shooting at
+    // them. It is a worse firing solution and a better escort, which is the trade being made.
+    // The gate and the bolt both use the real intercept; only the STEER point is pulled in, so
+    // flying the escort line costs them shots rather than making them miss on purpose.
+    _wd.copy(_wa).sub(w.obj.position).normalize();
+    _wa.lerp(player.rig.position, 0.25);
     steer(w, _wa, dt, 62);
     _wf.set(0, 0, 1).applyQuaternion(w.heading);
-    _wd.copy(_wa).sub(w.obj.position).normalize();
     w.fireCd -= dt;
-    if (w.fireCd <= 0 && dist < 320 && _wf.dot(_wd) > 0.99) {
-      spawnBolt(_wa.copy(w.obj.position).addScaledVector(_wf, 4), _wd, 260, 'wing', 1);
-      w.fireCd = 0.3;
+    // A wider gate with real dispersion behind it: they shoot more often and hit less, which
+    // reads as covering fire instead of three silent snipers.
+    if (w.fireCd <= 0 && dist < 320 && _wf.dot(_wd) > 0.985) {
+      _wd.x += rand(-WING_SPREAD, WING_SPREAD);
+      _wd.y += rand(-WING_SPREAD, WING_SPREAD);
+      _wd.z += rand(-WING_SPREAD, WING_SPREAD);
+      spawnBolt(_wa.copy(w.obj.position).addScaledVector(_wf, 4), _wd.normalize(), 260, 'wing', 1);
+      w.fireCd = WING_FIRE_CD * rand(0.85, 1.25);
     }
   } else if (player.alive) {
     _wa.set(...WING_SLOT[w.slot]).applyQuaternion(player.rig.quaternion).add(player.rig.position);
