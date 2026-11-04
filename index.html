@@ -3802,12 +3802,14 @@ function explode(pos, color, scale = 1, big = false) {
   sfx.boom(big, clamp(120 / (dist + 30), 0.15, 1), panAt(pos), dist);
 }
 // A blue-white flash where a Swarm flight drops out of jump.
-function jumpFlash(pos) {
+// `scale` 3 grows to roughly 33 units, which is right for a squadron arriving 300 m away and far
+// too big seven units from a turntable, so the size and the hyperspace cue are both optional.
+function jumpFlash(pos, scale = 3, sound = true) {
   const ball = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: new THREE.Color(2, 3, 6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   ball.position.copy(pos);
   scene.add(ball);
-  fx.push({ ball, ring: null, debris: [], dmat: null, t: 0, life: 0.9, scale: 3 });
-  sfx.jump(panAt(pos));
+  fx.push({ ball, ring: null, debris: [], dmat: null, t: 0, life: 0.9, scale });
+  if (sound) sfx.jump(panAt(pos));
 }
 function updateFx(dt) {
   fx = fx.filter((f) => {
@@ -6299,6 +6301,7 @@ function showFlow(i) {
     showKey.position.copy(SHIP_POSE).add(V(3.5, 5, 4));
   }
   showKey.intensity = onShip ? 140 : 0;
+  if (!onShip) swapEnd();
   if (flowAt < 0) { refreshTitle(); return; }
   // Each page numbers itself against the flow it is actually in, so co-op's extra screen does
   // not leave solo counting to four. Read off the page rather than kept per-screen, because a
@@ -6313,6 +6316,7 @@ const flowExit = () => showFlow(-1);
 // where refreshing a title nobody is about to see would also re-fetch both leader boards.
 function flowHide() {
   flowAt = -1;
+  swapEnd();
   for (const id of FLOW) $(id).hidden = true;
   playerShip.visible = false;
   showKey.intensity = 0;
@@ -7054,8 +7058,8 @@ const SHOTS = {
   // which is what stops a turntable reading as a photograph. The look point stays below the hull
   // so the ship rides the upper two thirds and the names sit clear beneath it.
   scShip: (t) => ({
-    at: V(Math.cos(t * 0.38) * (7.2 + Math.sin(t * 0.21) * 0.5), 1.1 + Math.sin(t * 0.27) * 0.5,
-          Math.sin(t * 0.38) * (7.2 + Math.sin(t * 0.21) * 0.5)),
+    at: V(Math.cos(t * 0.38) * (7.2 + Math.sin(t * 0.21) * 0.5 + swapKick()), 1.1 + Math.sin(t * 0.27) * 0.5,
+          Math.sin(t * 0.38) * (7.2 + Math.sin(t * 0.21) * 0.5 + swapKick())),
     look: V(0, -2.2, 0),
   }),
 };
@@ -7068,6 +7072,68 @@ const SHOTS = {
 const SHIP_POSE = V(0, 1800, 0);
 const _shotAt = V(), _shotLook = V();
 let shotReady = false;
+
+// ---------------------------------------------------------------- the hull swap
+// Replacing the model in place is a pop: one frame a Striker, the next a Zenith. On a page that
+// is otherwise all motion that reads as a glitch, and it wastes the one moment where the player
+// is looking straight at the ship. So a change is staged instead -- the old hull rolls hard and
+// shrinks away inside a flare, the new one is thrown into frame and springs back -- and the
+// model is rebuilt at the brightest point, where the cut cannot be seen.
+//
+// Two thirds of a second in total: long enough to register as an event, short enough to click
+// through all three hulls without waiting for any of them.
+const SWAP_OUT = 0.2, SWAP_IN = 0.44, SWAP_LEN = SWAP_OUT + SWAP_IN;
+const SWAP_SPARK = new THREE.Color(1.6, 2.4, 5);
+let swapT = -1, swapCut = false;
+// The camera flinches with the swap rather than watching it: a short push out and back, peaking
+// on the cut. Read by SHOTS.scShip, which is why it lives up here with the shots.
+const swapKick = () => (swapT < 0 ? 0 : Math.sin(Math.min(1, swapT / SWAP_LEN) * Math.PI) * 2.6);
+function swapBegin() {
+  swapT = 0;
+  swapCut = false;
+  sfx.whiz();
+}
+// Leaving the page mid-swap must not fly a hull nobody picked: before the cut the model on
+// screen is still the previous one and the chosen one has never been built.
+function swapEnd() {
+  if (swapT < 0) return;
+  const built = swapCut;
+  swapT = -1;
+  swapCut = false;
+  playerShip.scale.setScalar(1);
+  playerShip.rotation.set(0, 0, 0);
+  showKey.intensity = onTurntable() ? 140 : 0;
+  if (!built) usePlayerModel();
+}
+function animSwap(dt) {
+  if (swapT < 0) return;
+  swapT += dt;
+  if (swapT < SWAP_OUT) {
+    // Out under power, squared so it leaves slowly and then all at once.
+    const u = swapT / SWAP_OUT;
+    playerShip.scale.setScalar(1 - u * u);
+    playerShip.rotation.y = u * u * 7;
+    showKey.intensity = 140 + u * u * 620;
+    return;
+  }
+  if (!swapCut) {
+    swapCut = true;
+    usePlayerModel();
+    jumpFlash(SHIP_POSE, 0.42, false);
+    for (let i = 0; i < 26; i++) {
+      emit(SHIP_POSE, rand(-9, 9), rand(-9, 9), rand(-9, 9), SWAP_SPARK, 0.45);
+    }
+    sfx.lock(true);
+  }
+  const u = Math.min(1, (swapT - SWAP_OUT) / SWAP_IN);
+  // Cubic ease with a bulge through the middle. A hull that scales straight to 1 looks like a
+  // placeholder finishing loading; one that overshoots and settles looks thrown into frame.
+  const e = 1 - (1 - u) ** 3;
+  playerShip.scale.setScalar(e * (1 + Math.sin(u * Math.PI) * 0.16));
+  playerShip.rotation.y = (1 - e) * -5.4;
+  showKey.intensity = 140 + (1 - e) * 620;
+  if (u >= 1) swapEnd();
+}
 function titleCamera(dt) {
   titleT += dt;
   const page = flowAt >= 0 ? flowPages()[flowAt] : 'title';
@@ -7145,11 +7211,22 @@ const FIGHTERS = [
 const FIGHTER_KEY = 'sortie.fighter';
 let FIGHTER = FIGHTERS[0];
 try { FIGHTER = FIGHTERS.find((f) => f.id === localStorage.getItem(FIGHTER_KEY)) || FIGHTERS[0]; } catch { /* storage unavailable */ }
+const onTurntable = () => state === 'title' && flowAt >= 0 && flowPages()[flowAt] === 'scShip';
 function setFighter(id) {
+  const was = FIGHTER;
   FIGHTER = FIGHTERS.find((f) => f.id === id) || FIGHTERS[0];
   try { localStorage.setItem(FIGHTER_KEY, FIGHTER.id); } catch { /* storage unavailable */ }
-  if (MODELS.striker) usePlayerModel();
+  // The button lights up on the press whatever else happens; the hull takes its time.
   refreshFighter();
+  if (!MODELS.striker) return;
+  // Staged only where there is something to watch, and never for a player who has asked the
+  // system for less motion -- for them it is still an instant swap.
+  // An interrupted swap simply restarts: animSwap drives scale and rotation from its own clock
+  // every frame, and whatever hull is on screen is the right one to fly out. Ending the old one
+  // first would rebuild the model for no reason and send the destination hull out of frame.
+  if (FIGHTER !== was && onTurntable() && !REDUCED_MOTION) return swapBegin();
+  swapEnd();
+  usePlayerModel();
 }
 function refreshWingmen() {
   const r = loadRun();
@@ -8318,6 +8395,7 @@ function update(dt) {
   }
 
   if (state === 'title') {
+    animSwap(dt);
     titleCamera(dt);
     for (const e of enemies) updateEnemy(e, dt);
   } else if (!paused) {
