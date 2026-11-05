@@ -2922,9 +2922,15 @@ function buildSwarmCapital() {
     engines.push(V(side * 6.5, 2.8, -31.5), V(side * 4.2, -3.2, -29));
   }
 
-  // The four pods, one per face. Lasers do about 6 damage a second sustained, so 35 each is one
-  // solid gun run; a missile is worth four times its normal damage here, which makes ordnance
-  // the right tool for a hardpoint rather than a waste.
+  // The four pods, one per face. Lasers do about 6.5 damage a second sustained (26 energy a
+  // second divided by 4 a shot), so 22 each is about three and a half seconds of held trigger;
+  // a missile is worth four times its normal damage here, so one missile takes a pod outright,
+  // which makes ordnance the right tool for a hardpoint rather than a waste.
+  //
+  // It was 35, and the four of them plus an 80-point core came to the same 220 that made the
+  // capital escort unkillable -- except worse, because this damage has to be delivered to a
+  // 3 m hardpoint from one particular aspect while the ship orbits. At a measured 21.8% hit
+  // rate that was roughly 1,010 shots, which is more than an entire seven-minute run.
   const PODS = [
     { pos: V(0, 8.2, -4), r: 3.2, rot: [Math.PI * 0.5, 0, 0] },      // dorsal, from above
     { pos: V(0, -8.2, 7), r: 3.2, rot: [Math.PI * 0.5, 0, 0] },      // ventral, from below
@@ -2938,7 +2944,7 @@ function buildSwarmCapital() {
     cowl.rotation.set(...cfg.rot);
     pod.add(cowl, part(G.sphere, BOSS_POD, cfg.r * 0.75, cfg.r * 0.75, cfg.r * 0.75));
     boss.add(pod);
-    return { obj: pod, local: cfg.pos.clone(), r: cfg.r, hp: 35, max: 35, dead: false, world: V() };
+    return { obj: pod, local: cfg.pos.clone(), r: cfg.r, hp: 22, max: 22, dead: false, world: V() };
   });
 
   // The core, visible from the start but ringed with ribs so it reads as armoured rather than
@@ -2997,9 +3003,10 @@ const SHIPS = {
   warden: { tag: 'WARDEN', plural: 'Wardens',        hp: 58, r: 6.5, speed: 27, turn: 0.86, fireRate: 0.72, dmg: 16, pts: 750,  ptsForm: 260, color: 0x22e07a, heavy: true },
   raider: { tag: 'RAIDER', plural: 'raider saucers', hp: 9,  r: 4.2, speed: 28, turn: 1.0,  fireRate: 1.1,  dmg: 12,  pts: 1000, ptsForm: 1000, color: 0x9fffd0 },
   // The hive ship. `hp` is the CORE only -- the four pods are tracked separately and gate access
-  // to it, so the real health pool is 4 x 35 + 80. It turns slowly enough to be out-flown, which
-  // is the whole fight: get behind it, strip a pod, come round again.
-  boss:   { tag: 'HIVE',   plural: 'hive ships',     hp: 80, r: 22,  speed: 11, turn: 0.22, fireRate: 1.5,  dmg: 14, pts: 6000, ptsForm: 6000, color: 0x8a4dff },
+  // to it, so the real health pool is 4 x 22 + 50. It turns slowly enough to be out-flown, which
+  // is the whole fight: get behind it, strip a pod, come round again. `heavy` is what makes
+  // missiles count against the exposed core, as they already did against the pods.
+  boss:   { tag: 'HIVE',   plural: 'hive ships',     hp: 50, r: 22,  speed: 11, turn: 0.22, fireRate: 1.5,  dmg: 14, pts: 6000, ptsForm: 6000, color: 0x8a4dff, heavy: true },
   // The ace. Faster and tighter-turning than the player, which is the point: it cannot be
   // out-flown the way everything else can, only out-shot. Its health pool is large because the
   // fight is meant to go through phases, not because it is spongy -- see updateAce.
@@ -4770,14 +4777,18 @@ function damageBoss(e, dmg, credit, at, podMult) {
       return;
     }
     // A missile is worth four times its damage against a hardpoint, which makes ordnance the
-    // right tool here rather than a waste -- six missiles at 8 could not even kill one pod.
+    // right tool here rather than a waste -- at face value, six missiles at 8 could not kill
+    // even one pod.
     best.hp -= dmg * (podMult || 1);
     e.flash = 0.1;
     sfx.hit(panAt(best.world), 0.9, best.world.distanceTo(player.rig.position));
     if (best.hp <= 0) killPod(e, best, credit);
     return;
   }
-  e.hp -= dmg;
+  // The exposed core was the one armoured thing in the game a missile did nothing special to:
+  // 32 against a pod and 8 against the core, which made the last phase 80 gun hits with no way
+  // to shorten it. Same rule as the capital escort now -- armour is answered with ordnance.
+  e.hp -= e.d.heavy && podMult ? dmg * podMult : dmg;
   e.flash = 0.1;
   sfx.hit(panAt(e.obj.position), 1);
   if (e.hp <= 0) killEnemy(e, credit);
@@ -4808,10 +4819,15 @@ function updateBoss(e, dt) {
     const guns = exposed ? [e.obj.position] : ud.weak.filter((w) => !w.dead).map((w) => w.world);
     if (guns.length) {
       e.fireCd = (e.d.fireRate * rand(0.8, 1.2)) / Math.max(0.4, fireScale());
+      // The same floor enemyFire() uses. At a flat 0.03 the boss shot 2.4x straighter than a
+      // drone does at this wave, and it fires from every live pod at once -- four aimed bolts a
+      // volley that could not be evaded, only out-ranged. One value for the whole volley; each
+      // bolt still gets its own jitter inside it.
+      const bspread = 0.05 + 0.05 * (1 - diff());
       for (const g of guns) {
         leadPoint(g, PLAYER, ENEMY_BOLT_SPEED, _bb);
         _ba.copy(_bb).sub(g).normalize();
-        _ba.x += rand(-0.03, 0.03); _ba.y += rand(-0.03, 0.03); _ba.z += rand(-0.03, 0.03);
+        _ba.x += rand(-bspread, bspread); _ba.y += rand(-bspread, bspread); _ba.z += rand(-bspread, bspread);
         spawnBolt(g, _ba.normalize(), ENEMY_BOLT_SPEED, 'enemy', e.d.dmg * diff() * threat() * LEVEL.bite);
         const gD = g.distanceTo(pp);
       sfx.enemyLaser(clamp(120 / (gD + 20), 0.1, 1), panAt(g), gD);
