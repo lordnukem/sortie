@@ -4121,8 +4121,33 @@ const VID = (() => {
     return v;
   } catch { return ''; }
 })();
+// Debug telemetry: what a flight or a solo run looked like from this browser, for chasing bugs.
+// The server is the one switch (SORTIE_TELEMETRY=dev on the service). It answers every ping with
+// an x-sortie-telemetry header, and nothing debug-only is sent until a "dev" answer has come back,
+// so a live server never receives it and this build needs no flag of its own.
+let devTelemetry = false;
+const dbgLog = [];      // short events since the last ping, sent with the next one
+const DBG_MAX = 60;
+let perf = { frames: 0, secs: 0, jank: 0 };
+function dbg(code, detail = '') {
+  if (dbgLog.length < DBG_MAX) dbgLog.push({ t: Math.round(runT), c: code, d: String(detail).slice(0, 120) });
+}
+// Once per rendered frame, with the unclamped frame time: frames over 50 ms are what a player sees as a stutter.
+function perfSample(raw) { perf.frames++; perf.secs += raw; if (raw > 0.05) perf.jank++; }
 function ping(phase, extra = {}) {
   try {
+    if (phase === 'end') dbg('end', extra.ended || '');
+    const debug = devTelemetry ? {
+      mode: flightId ? 'coop' : 'solo',
+      flight: flightId,
+      role: flightId ? (net.host ? 'host' : 'guest') : null,
+      pilots: flightId ? flightSize() : 1,
+      lives, wingmen: aiWings,
+      fps: perf.secs > 0 ? Math.round(perf.frames / perf.secs) : null,
+      jank: perf.jank,
+      dpr: devicePixelRatio,
+      events: dbgLog.splice(0),
+    } : {};
     const body = JSON.stringify({
       sid: SID, vid: VID, phase,
       wave, cleared: Math.max(0, wave - 1), seconds: Math.round(runT),
@@ -4130,14 +4155,21 @@ function ping(phase, extra = {}) {
       pods: bossPods, core: bossCore, bosses: bossKills, boss: bossMet,
       touch: isTouch ? 1 : 0, vw: innerWidth | 0, vh: innerHeight | 0,
       installed: (matchMedia('(display-mode: standalone)').matches || navigator.standalone) ? 1 : 0,
+      ...debug,
       ...extra,
     });
+    perf = { frames: 0, secs: 0, jank: 0 };
     // keepalive, so the end-of-run ping still goes out when the page is being closed on top of it.
     fetch(`${API}/ping`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
+    }).then((r) => {
+      devTelemetry = r.headers.get('x-sortie-telemetry') === 'dev';
+      if (!devTelemetry) dbgLog.length = 0;
     }).catch(() => { /* offline, blocked, or the service is down: not the game's problem */ });
   } catch { /* reporting never breaks the game */ }
 }
+window.addEventListener('error', (e) => dbg('error', e.message));
+window.addEventListener('unhandledrejection', (e) => dbg('error', e.reason?.message || e.reason));
 
 function loadBoard() {
   const b = readJSON(BOARD_KEY);
@@ -5562,6 +5594,7 @@ function loseShip(msg) {
   player.vel.set(0, 0, 0);
   // The fighters on the Halcyon are one pool, not one each. A guest says it lost a ship and
   // the host does the arithmetic, so four pilots cannot each spend the same last fighter.
+  dbg('death', `lives ${lives}`);
   if (hosting()) { lives--; if (net.connected) net.send('lives', { n: lives }); }
   else net.send('pilot_down', {});
   rumble(600, 1);
@@ -5758,6 +5791,7 @@ function updateObjectives() {
 // to be a scramble you can lose, not a formality you ride out.
 const captureTime = () => 1.6 + 1.7 * (1 - diff());
 function startWave(n) {
+  dbg('wave', `${n} start`);
   wave = n;
   waveT = 0;
   waveActive = true;
@@ -5772,6 +5806,7 @@ function startWave(n) {
   if (kind === 'boss') {
     const bk = bossKind(n);
     bossMet = bk;
+    dbg('boss', bk);
     if (bk === 'hive') spawnBoss(n);
     else if (bk === 'holdout') startHoldout(n);
     else startAce(n);
@@ -5971,13 +6006,18 @@ function leaveFlight() {
 // Said once, when someone arrives or goes, because the flight list on the HUD shows the state
 // and the radio should carry the change.
 net.on('player_joined', (m) => {
+  dbg('join', m.player.callsign);
   comm('HALCYON', `${m.player.callsign} is on station.`, 'friend');
   // Catch them up. The wave is an event, so a pilot who arrives mid-sortie would otherwise sit
   // at WAVE 0 with no objectives while ships they cannot account for fly past them -- the
   // Swarm snapshot says where everything is and nothing at all about what is going on.
   if (net.host && waveActive) net.send('wave', { n: wave, kind: waveKind(wave) });
 });
-net.on('player_left', (m) => comm('HALCYON', `${m.callsign} has left the sector.`, 'friend'));
+net.on('player_left', (m) => {
+  dbg('leave', m.callsign);
+  comm('HALCYON', `${m.callsign} has left the sector.`, 'friend');
+});
+net.on('status', (m) => dbg('net', m.status + (m.tries ? ` try ${m.tries}` : '')));
 // The panel is only right while it is open, so it is only redrawn then.
 for (const t of ['player_joined', 'player_left', 'status', 'role']) {
   net.on(t, () => {
@@ -6006,6 +6046,7 @@ net.on('fire', (m) => {
 // The pool, kept by whoever is hosting. A guest never touches `lives` itself: it reports a
 // loss and takes the number back, which is the only way the count stays one count.
 net.on('pilot_down', (m) => {
+  dbg('pilot_down', m.from || '');
   if (!net.host) return;
   lives--;
   net.send('lives', { n: lives });
@@ -6038,12 +6079,14 @@ net.on('hit_enemy', (m) => {
 // browser and is not any more -- the sector was rebuilt, or someone else took it. Say so and
 // end it, because the alternative is a pilot flying in a world nothing is simulating.
 net.on('role', (m) => {
+  dbg('role', m.host ? 'host' : 'guest');
   if (m.host || !m.was) return;
   comm('HALCYON', 'Lost the flight channel. Another lead has the sector.', 'enemy');
   if (state === 'play') gameOver();
 });
 net.on('field', (m) => { if (!net.host) applyField(m.f); });
 net.on('wave', (m) => {
+  dbg('wave', `${m.n} ${m.kind || ''}`);
   if (net.host) return;
   wave = m.n;
   waveT = 0;
@@ -6476,6 +6519,7 @@ function startGame() {
   bossPods = 0; bossCore = 0; bossKills = 0; bossMet = null;
   // One id for the sortie, so whichever pilots post it end up as one row rather than four.
   flightId = net.status === 'open' && net.sector ? `${net.sector}-${Date.now().toString(36)}` : null;
+  dbg('run', flightId ? `coop ${net.host ? 'host' : 'guest'}` : 'solo');
   lives = 3 + COOP_LIVES_PER_PILOT * (flightSize() - 1);
   if (net.connected && net.host) net.send('lives', { n: lives });
   objectives = []; waveMark = null; sortieLog = []; carryMissiles = 0; runT = 0;
@@ -8508,7 +8552,9 @@ setTimeout(settleAssets, 10000);
 setupTitle();
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(frameClock.getDelta(), 0.05);
+  const raw = frameClock.getDelta();
+  perfSample(raw);
+  const dt = Math.min(raw, 0.05);
   update(dt);
   starMat.uniforms.uTime.value = clock;
   nebulaMat.uniforms.uTime.value = clock;

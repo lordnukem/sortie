@@ -96,6 +96,60 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS sessions_seen ON sessions (seen_at DESC);
   CREATE INDEX IF NOT EXISTS sessions_vid ON sessions (vid);
 `);
+
+// ---------------------------------------------------------------- debug telemetry
+// Off unless the service starts with SORTIE_TELEMETRY=dev. When it is off nothing is written to
+// these two tables, and every ping is answered with x-sortie-telemetry: live, which tells the game
+// not to send its debug fields at all. The on/off switch is therefore this one environment variable.
+const TELEMETRY_DEV = process.env.SORTIE_TELEMETRY === 'dev';
+const DEV_EVENTS_MAX = 200; // per visit, so one stuck client cannot fill the table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS dev_sessions (
+    sid TEXT PRIMARY KEY,
+    updated_at TEXT NOT NULL,
+    mode TEXT, flight TEXT, role TEXT,
+    pilots INTEGER, lives INTEGER, wingmen INTEGER,
+    fps INTEGER, jank INTEGER, dpr REAL
+  );
+  CREATE TABLE IF NOT EXISTS dev_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid TEXT NOT NULL,
+    at TEXT NOT NULL,
+    t INTEGER,
+    code TEXT NOT NULL,
+    detail TEXT
+  );
+  CREATE INDEX IF NOT EXISTS dev_events_sid ON dev_events (sid, id);
+  CREATE INDEX IF NOT EXISTS dev_sessions_flight ON dev_sessions (flight);
+`);
+const devSessionPut = db.prepare(`INSERT INTO dev_sessions
+  (sid, updated_at, mode, flight, role, pilots, lives, wingmen, fps, jank, dpr)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)
+  ON CONFLICT(sid) DO UPDATE SET
+    updated_at = excluded.updated_at, mode = excluded.mode, flight = excluded.flight,
+    role = excluded.role, pilots = excluded.pilots, lives = excluded.lives,
+    wingmen = excluded.wingmen, fps = excluded.fps, jank = excluded.jank, dpr = excluded.dpr`);
+const devEventCount = db.prepare('SELECT COUNT(*) AS n FROM dev_events WHERE sid = ?');
+const devEventPut = db.prepare('INSERT INTO dev_events (sid, at, t, code, detail) VALUES (?,?,?,?,?)');
+function storeDebug(sid, now, body) {
+  devSessionPut.run(
+    sid, now,
+    ['solo', 'coop'].includes(body.mode) ? body.mode : null,
+    typeof body.flight === 'string' && body.flight.length <= 80 ? body.flight : null,
+    ['host', 'guest'].includes(body.role) ? body.role : null,
+    int(body.pilots, 1, 8), int(body.lives, 0, 99), int(body.wingmen, 0, 10),
+    int(body.fps, 0, 1000), int(body.jank, 0, 1e6),
+    Number.isFinite(Number(body.dpr)) ? Math.min(8, Number(body.dpr)) : null,
+  );
+  const events = Array.isArray(body.events) ? body.events.slice(0, 60) : [];
+  let room = DEV_EVENTS_MAX - devEventCount.get(sid).n;
+  for (const e of events) {
+    if (room <= 0) break;
+    if (!e || typeof e.c !== 'string' || !/^[a-z_]{1,24}$/.test(e.c)) continue;
+    devEventPut.run(sid, now, int(e.t, 0, 86400) ?? 0, e.c, String(e.d ?? '').slice(0, 120));
+    room--;
+  }
+}
 // Columns added after the first rows were already stored. SQLite has no "add column if missing",
 // so the attempt is made and the duplicate-column error is the expected outcome on every boot
 // after the first.
@@ -434,7 +488,7 @@ const handleRequest = async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
 
-  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n, pilots: relay.pilots, sectors: relay.sectors.size });
+  if (url.pathname === '/api/health') return send(res, 200, { ok: true, rows: db.prepare('SELECT COUNT(*) AS n FROM scores').get().n, pilots: relay.pilots, sectors: relay.sectors.size, telemetry: TELEMETRY_DEV ? 'dev' : 'live' });
 
   if (url.pathname === '/api/scores' && req.method === 'GET') {
     if (!allow('r:' + ip, 120, 60_000)) return send(res, 429, { error: 'slow down' });
@@ -535,7 +589,8 @@ const handleRequest = async (req, res) => {
   if (url.pathname === '/api/ping' && req.method === 'POST') {
     if (!allow('p:' + ip, 240, 3600_000)) { res.writeHead(429); res.end(); return; }
     let body;
-    try { body = JSON.parse(await readBody(req, 1024)); } catch { res.writeHead(400); res.end(); return; }
+    // 16 KB: a dev ping can carry a batch of events. Live pings are a few hundred bytes.
+    try { body = JSON.parse(await readBody(req, 16384)); } catch { res.writeHead(400); res.end(); return; }
     const ID = /^[a-z0-9]{10,32}$/;
     const sid = String(body.sid || '');
     const vid = String(body.vid || '');
@@ -566,7 +621,9 @@ const handleRequest = async (req, res) => {
       ['hive', 'holdout', 'ace'].includes(body.boss) ? body.boss : null,
       int(body.bosses, 0, 100),
     );
-    res.writeHead(204); res.end();
+    if (TELEMETRY_DEV && body.mode) storeDebug(sid, now, body);
+    res.writeHead(204, { 'x-sortie-telemetry': TELEMETRY_DEV ? 'dev' : 'live' });
+    res.end();
     return;
   }
 
