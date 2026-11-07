@@ -446,6 +446,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
           <tr><td>Sound</td><td><kbd>M</kbd> all · <kbd>V</kbd> voice callouts</td><td>—</td><td>—</td></tr>
           <tr><td>Pause</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td><td>Start</td><td>PAUSE</td></tr>
           <tr><td>Save &amp; quit</td><td colspan="3">A button on the pause menu. The run resumes at the start of the wave you left.</td></tr>
+          <tr><td>Quit to menu</td><td colspan="3">A button on the pause menu. It ends the run for good: nothing resumes, so tap it twice to confirm.</td></tr>
           <tr><td>Full screen</td><td colspan="3">Automatic when you launch. A button on the pause menu toggles it; <kbd>Esc</kbd> leaves it, and it will not drag you back in afterwards.</td></tr>
           <tr><td>Start · continue</td><td><kbd>Enter</kbd> · <kbd>N</kbd> for a new sortie</td><td>A · X</td><td>Buttons</td></tr>
         </table>
@@ -572,6 +573,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <button class="launch ghost" id="pauseControls" type="button">Controls</button>
       <button class="launch ghost" id="pauseFull" type="button" hidden>Full screen</button>
       <button class="launch ghost" id="pauseQuit" type="button">Save &amp; quit</button>
+      <button class="launch ghost" id="pauseMenu" type="button">Quit to menu</button>
     </div>
   </section>
 </div>
@@ -610,7 +612,7 @@ kbd { font-family: var(--mono); font-size: 12px; color: var(--ink); border: 1px 
       <h2>Stage by stage</h2>
       <table class="threats" id="dLog"></table>
     </div>
-    <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button></div>
+    <div class="actions"><button class="launch" id="againBtn" type="button">Fly again</button><button class="launch ghost" id="overMenu" type="button">Main menu</button></div>
   </section>
 </div>
 
@@ -6779,7 +6781,7 @@ function togglePause() {
   if (state !== 'play') return;
   paused = !paused;
   $('pause').hidden = !paused;
-  if (paused) { document.exitPointerLock?.(); voice.stop(); refreshPauseNote(); refreshFullscreenBtn(); }
+  if (paused) { document.exitPointerLock?.(); voice.stop(); refreshPauseNote(); refreshFullscreenBtn(); $('pauseMenu').textContent = 'Quit to menu'; }
 }
 // Says which wave a resume would actually land on, because that is the part a player cannot
 // guess: the checkpoint is the top of this wave, not this moment.
@@ -6800,6 +6802,28 @@ function saveAndQuit() {
   // The HUD is gone by now, so the confirmation goes where the player is already looking: the
   // line under the Continue button, which also names the wave it will resume on.
   if (r) $('startHint').textContent = `Run saved — Continue resumes at wave ${r.wave}`;
+}
+// Quitting to the menu from the pause screen ends the run: the checkpoint is dropped, so Continue
+// has nothing to bring back. It takes two taps, because one stray tap would throw away a sortie.
+let quitArmed = 0;
+function quitToMenu() {
+  if (!paused) return;
+  if (performance.now() - quitArmed > 3000) {
+    quitArmed = performance.now();
+    $('pauseMenu').textContent = 'Tap again to end run';
+    return;
+  }
+  ping('end', { ended: 'quit' });
+  dropKey(SAVE_KEY);
+  toTitle();
+}
+// From the debrief the run is already over and its checkpoint already gone, so this only has to
+// post a pending name (as Fly again would) and go to the menu. The same short guard as Fly again
+// keeps a double tap from landing on the title screen.
+function menuFromDebrief() {
+  if (state !== 'over' || performance.now() - overShown <= 900) return;
+  if (entry) confirmEntry();
+  toTitle();
 }
 function toTitle() {
   closeEntry();
@@ -7624,6 +7648,8 @@ $('dInitials').addEventListener('click', (e) => {
 $('againBtn').addEventListener('click', () => { if (state === 'over') leaveDebrief(); });
 $('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
 $('pauseQuit').addEventListener('click', () => { if (paused) saveAndQuit(); });
+$('pauseMenu').addEventListener('click', quitToMenu);
+$('overMenu').addEventListener('click', menuFromDebrief);
 $('pauseFull').addEventListener('click', () => toggleFullscreen());
 $('titleFull').addEventListener('click', () => toggleFullscreen());
 $('installBtn').addEventListener('click', async () => {
