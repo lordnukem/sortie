@@ -6391,7 +6391,11 @@ async function shareFlight() {
   const say = (t) => { btn.textContent = t; setTimeout(() => { btn.textContent = 'Copy invite link'; }, 2200); };
   try {
     if (navigator.share) { await navigator.share({ title: 'Sortie!', text: `Join my flight: ${net.sector}`, url }); return; }
-  } catch { /* dismissed, or refused: fall through to the clipboard */ }
+  } catch (err) {
+    // Dismissing the sheet is an answer, not a failure: say nothing and do not touch the
+    // clipboard, which the browser would refuse anyway once the gesture has gone.
+    if (err && err.name === 'AbortError') return;
+  }
   try {
     await navigator.clipboard.writeText(url);
     say('Link copied');
@@ -7534,7 +7538,7 @@ $('flowBtn').addEventListener('click', () => flowOpen());
 // not survive it.
 for (const id of FLOW) {
   $(id).addEventListener('click', async (e) => {
-    const t = e.target.closest('[data-flow], [data-mode], [data-link], [data-cspin], [data-cslot], #codeGo');
+    const t = e.target.closest('[data-flow], [data-mode], [data-link], [data-cspin], [data-cslot], #codeGo, #linkCopy, #linkLeave');
     if (!t) return;
     if (t.dataset.mode) { flowMode = t.dataset.mode; return refreshMode(); }
     if (t.dataset.link) { linkPick = t.dataset.link; return refreshLink(); }
