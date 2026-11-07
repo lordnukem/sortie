@@ -18,6 +18,11 @@ python3 tools/graphify-prep.py
 graphify extract "$SRC" --code-only --no-viz >/dev/null
 cp "$SRC/graphify-out/graph.json" "$OUT/graph-game.json"
 
+# The repo extract reloads whatever graph.json is already there, and that file holds the
+# game nodes from the last merge, labelled with the cache corpus name. graphify 0.9.103
+# refuses to dedupe a graph spanning two repo labels, so start the repo pass clean. The
+# merge below rebuilds the whole graph anyway, so nothing is lost.
+rm -f "$REPO/graphify-out/graph.json"
 graphify extract "$REPO" --code-only --no-viz >/dev/null
 cp "$REPO/graphify-out/graph.json" "$OUT/graph-repo.json"
 

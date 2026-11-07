@@ -17,6 +17,7 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 /graphify <url1> <url2> ...                           # clone multiple repos, build each, merge into one cross-repo graph
 /graphify <path> --mode deep                          # thorough extraction, richer INFERRED edges
 /graphify <path> --update                             # incremental - re-extract only new/changed files
+/graphify <path> --force                              # full rebuild allowing graph shrink (e.g. after deleting files)
 /graphify <path> --directed                            # build directed graph (preserves edge direction: source→target)
 /graphify <path> --whisper-model medium                # use a larger Whisper model for better transcription accuracy
 /graphify <path> --cluster-only                       # rerun clustering on existing graph
@@ -45,6 +46,10 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 ## What graphify is for
 
 Drop any folder of code, docs, papers, images, or video into graphify and get a queryable knowledge graph. Persistent across sessions, honest audit trail (EXTRACTED/INFERRED/AMBIGUOUS), community detection surfaces cross-document connections you wouldn't think to ask about.
+
+**When a graph is worth building:** this applies when you are choosing a tool yourself; if the user invoked `/graphify`, follow that request as asked. AST extraction of code is fast and free, but semantic extraction of docs, papers and images runs the model over every file, which can cost minutes and tens of thousands of tokens.
+
+If a graph already exists, query it. With no graph, one targeted lookup ("where is X defined", "what calls Y" in an ordinary-sized codebase) is faster and free with a plain text search such as `grep` and `Read`: search directly instead of running the steps below, and mention that a graph can be built if the user wants one. Build one when you expect many questions against this corpus, the corpus is large or unfamiliar, the question needs links text search cannot see (doc to code, across documents), or it is structural (communities, bridges, import cycles).
 
 ## What You Must Do When Invoked
 
@@ -464,7 +469,7 @@ print(f'Merged: {total} nodes, {edges} edges ({len(ast[\"nodes\"])} AST + {len(s
 
 ### Step 4 - Build graph, cluster, analyze, generate outputs
 
-**Before starting:** the code blocks below pass `directed=IS_DIRECTED` to `build_from_json()`. Replace `IS_DIRECTED` with `True` if `--directed` was given (builds a `DiGraph` preserving edge direction source→target), otherwise `False` (the default undirected `Graph`). Substitute it the same way you substitute `INPUT_PATH` — do not leave the literal `IS_DIRECTED` in the code.
+**Before starting:** the code blocks below pass `directed=IS_DIRECTED` to `build_from_json()` and `force=IS_FORCE` to `to_json()`. Replace `IS_DIRECTED` with `True` if `--directed` was given (builds a `DiGraph` preserving edge direction source→target), otherwise `False` (the default undirected `Graph`). Replace `IS_FORCE` with `True` if `--force` was given (permits intentional shrink, e.g. after deleting files), otherwise `False`. Substitute them the same way you substitute `INPUT_PATH` — do not leave literal `IS_DIRECTED` or `IS_FORCE` in the code.
 
 ```bash
 mkdir -p graphify-out
@@ -502,7 +507,7 @@ questions = suggest_questions(G, communities, labels)
 # nothing) when the new graph is smaller than the existing graph.json. Only write
 # GRAPH_REPORT.md + the analysis sidecar when the graph was actually written, so
 # they never describe a graph that graph.json doesn't contain (#1392).
-wrote = to_json(G, communities, 'graphify-out/graph.json')
+wrote = to_json(G, communities, 'graphify-out/graph.json', force=IS_FORCE)
 if not wrote:
     print('ERROR: refused to shrink graphify-out/graph.json (existing graph has more nodes; #479).')
     print('If this shrink is intentional (you deleted files), re-run a full build with --force.')
