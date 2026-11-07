@@ -425,7 +425,10 @@ function readBody(req, limit = 4096) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+// Every route runs under this guard. An async handler with no catch turns any throw into an
+// unhandled rejection, and Node 22 exits on one of those -- so a single malformed write took the
+// whole API down. A failed request now gets a 500 and a log line, and the process keeps serving.
+const handleRequest = async (req, res) => {
   cors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   const url = new URL(req.url, 'http://localhost');
@@ -672,6 +675,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   send(res, 404, { error: 'no such endpoint' });
+};
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((err) => {
+    console.error(`request ${req.method} ${req.url} failed:`, err);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  });
 });
 // Co-op relay on /ws. It shares this file's origin allowlist rather than keeping its own: a
 // WebSocket handshake is exempt from the same-origin policy, so that list is the only thing
