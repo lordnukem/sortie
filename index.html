@@ -3875,6 +3875,9 @@ let viewMode = 'chase', camSnap = true;
 
 let state = 'title', paused = false, flightStyle = true;
 let score = 0, lives = 3, wave = 0, kills = 0, shots = 0, hits = 0, rocksDestroyed = 0, nextExtra = 20000;
+// Boss progress for the run, reported with every ping so a dead run says how far the fight got:
+// emitter pods this pilot destroyed, core hits, boss-class kills, and which boss wave was met.
+let bossPods = 0, bossCore = 0, bossKills = 0, bossMet = null;
 let hi = loadHi();
 let enemies = [], bolts = [], missiles = [], rocks = [];
 const rockSpawns = [];
@@ -4122,6 +4125,7 @@ function ping(phase, extra = {}) {
       sid: SID, vid: VID, phase,
       wave, cleared: Math.max(0, wave - 1), seconds: Math.round(runT),
       shots, hits, kills, level: LEVEL.id,
+      pods: bossPods, core: bossCore, bosses: bossKills, boss: bossMet,
       touch: isTouch ? 1 : 0, vw: innerWidth | 0, vh: innerHeight | 0,
       installed: (matchMedia('(display-mode: standalone)').matches || navigator.standalone) ? 1 : 0,
       ...extra,
@@ -4503,6 +4507,7 @@ function killEnemy(e, credit) {
     net.send('enemy_dead', { nid: e.nid, p: [r2(p.x), r2(p.y), r2(p.z)], type: e.type, by: creditTo, pts });
   }
   if (credit) { addScore(pts); kills++; }
+  if (credit && (e.type === 'boss' || e.type === 'ace')) bossKills++;
   // What a wreck leaves behind, by how much trouble it was. A capital ship always drops two.
   const DROP = { drone: 0.05, lancer: 0.08, warden: 0.3, raider: 0.3, ace: 1, capital: 1, boss: 1 };
   const odds = DROP[e.type] ?? 0.05;
@@ -4743,6 +4748,7 @@ function updateAce(e, dt) {
 
 function killPod(e, pod, credit) {
   const ud = e.obj.userData;
+  if (credit) bossPods++;
   pod.dead = true;
   pod.obj.visible = false;
   ud.podsLeft--;
@@ -4788,6 +4794,7 @@ function damageBoss(e, dmg, credit, at, podMult) {
   // The exposed core was the one armoured thing in the game a missile did nothing special to:
   // 32 against a pod and 8 against the core, which made the last phase 80 gun hits with no way
   // to shorten it. Same rule as the capital escort now -- armour is answered with ordnance.
+  if (credit) bossCore++;
   e.hp -= e.d.heavy && podMult ? dmg * podMult : dmg;
   e.flash = 0.1;
   sfx.hit(panAt(e.obj.position), 1);
@@ -5762,6 +5769,7 @@ function startWave(n) {
   if (net.connected && net.host) net.send('wave', { n, kind });
   if (kind === 'boss') {
     const bk = bossKind(n);
+    bossMet = bk;
     if (bk === 'hive') spawnBoss(n);
     else if (bk === 'holdout') startHoldout(n);
     else startAce(n);
@@ -6463,6 +6471,7 @@ function startGame() {
   dropKey(SAVE_KEY);
   clearWorld();
   score = 0; wave = 0; kills = 0; shots = 0; hits = 0; rocksDestroyed = 0; nextExtra = 20000;
+  bossPods = 0; bossCore = 0; bossKills = 0; bossMet = null;
   // One id for the sortie, so whichever pilots post it end up as one row rather than four.
   flightId = net.status === 'open' && net.sector ? `${net.sector}-${Date.now().toString(36)}` : null;
   lives = 3 + COOP_LIVES_PER_PILOT * (flightSize() - 1);

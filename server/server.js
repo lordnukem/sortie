@@ -105,6 +105,11 @@ for (const [col, type] of [['lat', 'REAL'], ['lon', 'REAL'], ['cc', 'TEXT'], ['l
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); } catch { /* already there */ }
   }
 }
+// How far the boss fight got. Added after sessions already had rows, so the same tolerance applies.
+for (const [col, type] of [['pods', 'INTEGER NOT NULL DEFAULT 0'], ['core_hits', 'INTEGER NOT NULL DEFAULT 0'],
+  ['boss', 'TEXT'], ['boss_kills', 'INTEGER NOT NULL DEFAULT 0']]) {
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN ${col} ${type}`); } catch { /* already there */ }
+}
 const insert = db.prepare(`INSERT INTO scores
   (name, score, wave, level, kills, shots, hits, rocks, seconds, created_at, client_tz, client_time,
    ip, country, region, city, lat, lon, cc, ua, os, browser, device, flags)
@@ -160,8 +165,8 @@ const geoPut = db.prepare('INSERT OR REPLACE INTO geo_cache (ip, country, region
 const pingPut = db.prepare(`INSERT INTO sessions
   (sid, vid, created_at, seen_at, started, runs, wave_max, waves_cleared, seconds, shots, hits,
    kills, deaths, level, ended, submitted, installed, touch, vw, vh,
-   ip, country, region, city, cc, ua, os, browser, device)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   ip, country, region, city, cc, ua, os, browser, device, pods, core_hits, boss, boss_kills)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(sid) DO UPDATE SET
     seen_at       = excluded.seen_at,
     started       = MAX(sessions.started, excluded.started),
@@ -178,7 +183,11 @@ const pingPut = db.prepare(`INSERT INTO sessions
     submitted     = MAX(sessions.submitted, excluded.submitted),
     installed     = MAX(sessions.installed, excluded.installed),
     vw            = COALESCE(excluded.vw, sessions.vw),
-    vh            = COALESCE(excluded.vh, sessions.vh)`);
+    vh            = COALESCE(excluded.vh, sessions.vh),
+    pods          = MAX(sessions.pods, excluded.pods),
+    core_hits     = MAX(sessions.core_hits, excluded.core_hits),
+    boss          = COALESCE(excluded.boss, sessions.boss),
+    boss_kills    = MAX(sessions.boss_kills, excluded.boss_kills)`);
 
 // ---------------------------------------------------------------- what a client may claim
 const NAME_OK = /^[A-Z0-9.\-]{3}$/;
@@ -550,6 +559,9 @@ const server = http.createServer(async (req, res) => {
       int(body.vw, 0, 20000) || null, int(body.vh, 0, 20000) || null,
       ip || null, geo.country || null, geo.region || null, geo.city || null, geo.cc || null,
       d.ua, d.os, d.browser, d.device,
+      int(body.pods, 0, 100), int(body.core, 0, 1e6),
+      ['hive', 'holdout', 'ace'].includes(body.boss) ? body.boss : null,
+      int(body.bosses, 0, 100),
     );
     res.writeHead(204); res.end();
     return;
@@ -628,7 +640,7 @@ const server = http.createServer(async (req, res) => {
       const cols = ['sid', 'vid', 'created_at', 'seen_at', 'started', 'runs', 'wave_max',
         'waves_cleared', 'seconds', 'shots', 'hits', 'kills', 'deaths', 'level', 'ended',
         'submitted', 'installed', 'touch', 'vw', 'vh', 'ip', 'country', 'region', 'city', 'cc',
-        'os', 'browser', 'device', 'ua'];
+        'os', 'browser', 'device', 'ua', 'pods', 'core_hits', 'boss', 'boss_kills'];
       const data = db.prepare(`SELECT ${cols.join(', ')} FROM sessions ORDER BY seen_at DESC`).all();
       const cell = (v) => {
         if (v === null || v === undefined) return '';
