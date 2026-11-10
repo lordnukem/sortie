@@ -57,6 +57,26 @@ sonnet beats stalling. `/model` switches mid-session.
 Because surveys and harnesses move to haiku under this workflow, Opus-as-main is
 cheaper than it was in the sprint that prompted this document.
 
+## When Haiku drives (added 2026-11-10)
+
+Haiku is now the daily driver, so the "Opus, inline" rows above no longer describe
+the seat. Read them as two roles. **The main session does the legwork**: the
+follow-up reading, the edit, the harness, the verification, the ship. **The
+`advisor` subagent (Fable, read-only) does what the Opus seat was there for**: it
+is asked before any numeric, balance, feel or co-op-state change, and again after
+two failed fixes. It returns the decision, the exact code for the subtle part, and
+the command that proves each step; the main session carries that out and runs it.
+The rule above still holds — haiku does not decide numeric tuning or game feel on
+its own. Triggers and the brief format are in `~/.claude/CLAUDE.md` § Model Routing.
+
+Two baseline probes (2026-11-10, plan only) had Haiku find that `bite` is the clean
+lever for "half as dangerous" and that `score` must match the server's
+`LEVEL_SCORE`; one of the two also found that `ramp` lands twice. That is one miss
+in two on the exact trap described above, which is why the advisor call stays.
+
+For a sprint that is mostly judgment, `/model opus` for that sprint is still the
+cheaper path than many advisor calls.
+
 ## The per-sprint loop
 
 1. **Survey** — haiku, parallel, read-only. One agent per independent question,
